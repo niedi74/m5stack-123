@@ -5,7 +5,7 @@
 #include <lgfx/v1/platforms/esp32/Bus_SPI.hpp>
 #include <lgfx/v1/platforms/esp32/Light_PWM.hpp>
 
-// ─── GC9A01 Display ───────────────────────────────────────────────────────────
+// --- GC9A01 Display ---
 class LGFX : public lgfx::LGFX_Device {
     lgfx::Panel_GC9A01 _gc9a01;
     lgfx::Bus_SPI      _spi;
@@ -32,16 +32,17 @@ static LGFX        display;
 static LGFX_Sprite sprTop(&display);
 static LGFX_Sprite sprBot(&display);
 
-// ─── BLE NUS ──────────────────────────────────────────────────────────────────
+// --- BLE NUS ---
 static const char* NUS_SVC = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+static const char* NUS_RX  = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 static const char* NUS_TX  = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 static const char* TARGET  = "ef:a8:b2:de:e0:9e";
 
-// ─── Hardware ─────────────────────────────────────────────────────────────────
+// --- Hardware ---
 #define BTN_PIN       42
 #define LONG_PRESS_MS 600
 
-// ─── On-screen log ────────────────────────────────────────────────────────────
+// --- On-screen log ---
 #define NLOG 6
 static char g_log[NLOG][38];
 static int  g_logN = 0;
@@ -55,7 +56,7 @@ static void pushLog(const char* fmt, ...) {
     Serial.printf("[%6lums] %s\n", millis(), tmp);
 }
 
-// ─── App State ────────────────────────────────────────────────────────────────
+// --- App State ---
 static volatile float    g_rpm   = 0;
 static volatile float    g_adv   = 0;
 static volatile float    g_tmp   = 0;
@@ -68,10 +69,36 @@ static bool              g_view  = false;   // false=ADV/RPM  true=TMP/VLT
 static bool              g_rawlog = false;
 
 static NimBLEClient* pClient   = nullptr;
+static NimBLERemoteCharacteristic* pNusRx = nullptr;
 static NimBLEAddress targetAddr;
 static volatile bool  doConnect = false;
 
-// ─── Frame decoder ────────────────────────────────────────────────────────────
+static uint8_t charProps(NimBLERemoteCharacteristic* c) {
+    uint8_t props = 0;
+    if (c->canBroadcast())       props |= 0x01;
+    if (c->canRead())            props |= 0x02;
+    if (c->canWriteNoResponse()) props |= 0x04;
+    if (c->canWrite())           props |= 0x08;
+    if (c->canNotify())          props |= 0x10;
+    if (c->canIndicate())        props |= 0x20;
+    if (c->canWriteSigned())     props |= 0x40;
+    if (c->hasExtendedProps())   props |= 0x80;
+    return props;
+}
+
+static void logConnInfo(const char* tag) {
+    if (!pClient || !pClient->isConnected()) return;
+    NimBLEConnInfo info = pClient->getConnInfo();
+    Serial.printf("[%6lums] %s: itvl=%.1fms lat=%u to=%ums mtu=%u enc=%d auth=%d bond=%d\n",
+                  millis(), tag,
+                  info.getConnInterval() * 1.25f,
+                  info.getConnLatency(),
+                  info.getConnTimeout() * 10,
+                  info.getMTU(),
+                  info.isEncrypted(), info.isAuthenticated(), info.isBonded());
+}
+
+// --- Frame decoder ---
 static int hexnib(uint8_t c) {
     if (c >= '0' && c <= '9') return c - '0';
     if (c >= 'A' && c <= 'F') return c - 'A' + 10;
@@ -104,17 +131,19 @@ static void decodeFrame(const uint8_t* d, size_t n) {
     }
 }
 
-// ─── NimBLE callbacks ─────────────────────────────────────────────────────────
+// --- NimBLE callbacks ---
 static void startScan();
 
 class ClientCB : public NimBLEClientCallbacks {
     void onConnect(NimBLEClient*) override {
         g_conn = true;
         pushLog("Verbunden!");
+        logConnInfo("Conn");
     }
     void onDisconnect(NimBLEClient*, int reason) override {
         g_conn  = false;
         g_rxCnt = 0;
+        pNusRx  = nullptr;
         pushLog("Disc reason=%d", reason);
         startScan();
     }
@@ -154,7 +183,7 @@ static void startScan() {
     s->start(0, false);
 }
 
-// Globaler Notify-Handler — bekommt JEDE Notification, egal welche Char
+// Notify handler: receives every notification regardless of characteristic
 static void onAnyNotify(NimBLERemoteCharacteristic* chr,
                         uint8_t* data, size_t len, bool isNotify) {
     Serial.printf("[%6lums] NTFY handle=%u len=%u :",
@@ -164,16 +193,47 @@ static void onAnyNotify(NimBLERemoteCharacteristic* chr,
     decodeFrame(data, len);
 }
 
+static void sendRaytacPing() {
+    if (!g_conn || !pClient || !pClient->isConnected() || !pNusRx) return;
+
+    const uint8_t ping = '$';
+    bool ok = pNusRx->writeValue(&ping, 1, true);
+    Serial.printf("[%6lums] TX ping '$' -> %s\n", millis(), ok ? "OK" : "FAIL");
+}
+
+static void sendRaytacEnter() {
+    if (!g_conn || !pClient || !pClient->isConnected() || !pNusRx) return;
+
+    const uint8_t cr = '\r';
+    bool ok = pNusRx->writeValue(&cr, 1, true);
+    Serial.printf("[%6lums] TX enter CR -> %s\n", millis(), ok ? "OK" : "FAIL");
+}
+
+static void sendRaytacCommand(const char* command) {
+    if (!g_conn || !pClient || !pClient->isConnected() || !pNusRx) return;
+
+    char buf[24];
+    snprintf(buf, sizeof(buf), "%s\r$", command);
+    bool ok = pNusRx->writeValue((uint8_t*)buf, strlen(buf), true);
+    Serial.printf("[%6lums] TX cmd '%s\\\\r$' -> %s\n",
+                  millis(), command, ok ? "OK" : "FAIL");
+}
+
+
 static void connectBLE() {
     pushLog("Verbinde...");
     if (!pClient) {
         pClient = NimBLEDevice::createClient();
         pClient->setClientCallbacks(&clientCB, false);
     }
-    if (!pClient->connect(targetAddr)) {
+    // Match the 123\TUNE+ preferred parameters from the nRF Connect trace.
+    pClient->setConnectionParams(16, 32, 0, 400);
+    if (!pClient->connect(targetAddr, true, false, false)) {
         pushLog("Conn FAIL");
         startScan(); return;
     }
+    logConnInfo("PostConnect");
+    delay(750);
 
     // ALLE Services dumpen
     auto& svcs = pClient->getServices(true);
@@ -184,53 +244,94 @@ static void connectBLE() {
             Serial.printf("[%6lums]   CHR %s h=%u prop=%02X N=%d I=%d R=%d W=%d\n",
                           millis(), c->getUUID().toString().c_str(),
                           c->getHandle(),
-                          (unsigned)0,
+                          charProps(c),
                           c->canNotify(), c->canIndicate(),
                           c->canRead(), c->canWrite());
         }
     }
 
-    // Auf JEDE notify/indicate Char subscriben
-    int subN = 0;
-    for (auto* s : svcs) {
-        for (auto* c : s->getCharacteristics()) {
-            if (c->canNotify() || c->canIndicate()) {
-                bool ok = c->subscribe(c->canNotify(), onAnyNotify, true);
-                Serial.printf("[%6lums] sub %s -> %s\n",
-                              millis(), c->getUUID().toString().c_str(),
-                              ok ? "OK" : "FAIL");
-                if (ok) subN++;
-            }
-        }
+    auto* svc = pClient->getService(NUS_SVC);
+    if (!svc) {
+        pushLog("Kein NUS!");
+        return;
     }
-    pushLog("Sub auf %d Chars", subN);
+
+    auto* tx = svc->getCharacteristic(NUS_TX);
+    auto* rx = svc->getCharacteristic(NUS_RX);
+    pNusRx = rx;
+    if (!tx) {
+        pushLog("Kein NUS TX!");
+        return;
+    }
+
+    Serial.printf("[%6lums] NUS TX h=%u prop=%02X N=%d I=%d\n",
+                  millis(), tx->getHandle(), charProps(tx), tx->canNotify(), tx->canIndicate());
+    if (rx) {
+        Serial.printf("[%6lums] NUS RX h=%u prop=%02X W=%d WNR=%d\n",
+                      millis(), rx->getHandle(), charProps(rx),
+                      rx->canWrite(), rx->canWriteNoResponse());
+    }
+
+    auto* cccd = tx->getDescriptor(NimBLEUUID((uint16_t)0x2902));
+    if (cccd) {
+        uint16_t off = 0x0000;
+        bool offOk = cccd->writeValue((uint8_t*)&off, 2, true);
+        delay(150);
+        Serial.printf("[%6lums] NUS CCCD off -> %s\n", millis(), offOk ? "OK" : "FAIL");
+    } else {
+        Serial.printf("[%6lums] NUS CCCD fehlt\n", millis());
+    }
+
+    bool ok = tx->subscribe(true, onAnyNotify, true);
+    Serial.printf("[%6lums] sub NUS TX -> %s\n", millis(), ok ? "OK" : "FAIL");
+
+    if (cccd) {
+        NimBLEAttValue v = cccd->readValue();
+        Serial.printf("[%6lums] NUS CCCD read len=%u :",
+                      millis(), (unsigned)v.length());
+        for (size_t i = 0; i < v.length(); i++) Serial.printf(" %02X", v.data()[i]);
+        Serial.println();
+    }
+
+    pushLog("Sub NUS: %s", ok ? "OK" : "FAIL");
+    sendRaytacPing();
+    delay(120);
+    sendRaytacEnter();
+    delay(250);
+    sendRaytacCommand("v@");
+    delay(500);
+    sendRaytacCommand("10@");
+    delay(500);
+    sendRaytacCommand("11@");
+    delay(500);
+    sendRaytacCommand("12@");
+    delay(500);
+    sendRaytacCommand("13@");
 }
 
-// ─── Display ──────────────────────────────────────────────────────────────────
-// Status-Balken oben (36px): BLE-Status links, Zähler + Modus rechts
+// --- Display ---
+// Status bar top: shifted down to stay inside the visible round display area.
 static void drawStatus() {
-    display.fillRect(0, 0, 240, 36, TFT_BLACK);
+    display.fillRect(0, 0, 240, 44, TFT_BLACK);
     display.setFont(&fonts::FreeSans9pt7b);
 
-    // BLE-Status (Zeile 1)
     display.setTextDatum(ML_DATUM);
     display.setTextColor(g_conn ? (uint32_t)TFT_GREEN : (uint32_t)TFT_RED);
-    display.drawString(g_conn ? "BLE OK" : "Suche...", 64, 12);
+    display.drawString(g_conn ? "BLE OK" : "Suche...", 66, 20);
 
-    // Zähler + Modus (Zeile 2)
     display.setTextColor(0x404040);
     char buf[16];
     snprintf(buf, sizeof(buf), "IGN #%lu", (unsigned long)g_rxCnt);
-    display.drawString(buf, 64, 26);
+    display.drawString(buf, 66, 34);
 
     display.setTextDatum(MR_DATUM);
     display.setTextColor(0x303030);
-    display.drawString(g_view ? "T/V" : "ADV", 185, 19);
+    display.drawString(g_view ? "T/V" : "ADV", 184, 27);
 }
 
-// Log-Ansicht: wenn noch keine Daten → BLE-Steps anzeigen
+// Log view: show BLE steps until data arrives
 static void drawLog() {
-    display.fillRect(0, 36, 240, 204, TFT_BLACK);
+    display.fillRect(0, 44, 240, 196, TFT_BLACK);
     display.setFont(&fonts::FreeSans9pt7b);
     int start = (g_logN > NLOG) ? g_logN - NLOG : 0;
     int count = min(g_logN, NLOG);
@@ -239,11 +340,11 @@ static void drawLog() {
         bool newest = (start + i == g_logN - 1);
         display.setTextDatum(ML_DATUM);
         display.setTextColor(newest ? (uint32_t)TFT_WHITE : (uint32_t)0x444444);
-        display.drawString(g_log[slot], 16, 52 + i * 27);
+        display.drawString(g_log[slot], 18, 62 + i * 25);
     }
 }
 
-// Daten-Hälften (je 102px Sprite)
+// Data halves (102px sprite each)
 static void drawHalf(LGFX_Sprite& spr, const char* val, const char* lbl,
                      uint32_t col, int pushY) {
     spr.fillSprite(TFT_BLACK);
@@ -260,20 +361,20 @@ static void drawHalf(LGFX_Sprite& spr, const char* val, const char* lbl,
 static void drawMain() {
     char buf[16];
     snprintf(buf, sizeof(buf), "%.1f", (float)g_adv);
-    drawHalf(sprTop, buf, "ADVANCE  deg", TFT_ORANGE, 36);
+    drawHalf(sprTop, buf, "ADVANCE  deg", TFT_ORANGE, 44);
     snprintf(buf, sizeof(buf), "%d", (int)g_rpm);
-    drawHalf(sprBot, buf, "RPM", TFT_WHITE, 138);
+    drawHalf(sprBot, buf, "RPM", TFT_WHITE, 140);
 }
 
 static void drawAux() {
     char buf[16];
     snprintf(buf, sizeof(buf), "%.0f", (float)g_tmp);
-    drawHalf(sprTop, buf, "TEMP  degC", TFT_CYAN, 36);
+    drawHalf(sprTop, buf, "TEMP  degC", TFT_CYAN, 44);
     snprintf(buf, sizeof(buf), "%.1f", (float)g_vlt);
-    drawHalf(sprBot, buf, "VOLT  V", TFT_YELLOW, 138);
+    drawHalf(sprBot, buf, "VOLT  V", TFT_YELLOW, 140);
 }
 
-// ─── Button: kurz = Ansicht, lang = Raw-Log toggle ────────────────────────────
+// --- Button: short = view, long = raw log toggle ---
 static void handleButton() {
     static bool     lastBtn   = HIGH;
     static uint32_t pressTime = 0;
@@ -292,10 +393,14 @@ static void handleButton() {
     lastBtn = btn;
 }
 
-// ─── Setup / Loop ─────────────────────────────────────────────────────────────
+// --- Setup / Loop ---
 void setup() {
     Serial.begin(115200);
-    Serial.println("\n=== M5Dial 123TUNE+ ===");
+    delay(1200);
+    for (int i = 0; i < 5; ++i) {
+        Serial.printf("\n=== M5Dial 123TUNE+ boot %d ===\n", i + 1);
+        delay(200);
+    }
 
     display.init();
     display.setRotation(2);
@@ -310,9 +415,7 @@ void setup() {
     pushLog("Start...");
     NimBLEDevice::init("M5Dial-NUS");
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
-    // Pairing/Bonding aktivieren — NUS TX könnte verschlüsselung verlangen
-    NimBLEDevice::setSecurityAuth(true, false, true);  // bond, mitm=false, sc
-    NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
+    NimBLEDevice::setMTU(23);
     startScan();
 }
 
@@ -320,6 +423,13 @@ void loop() {
     handleButton();
 
     if (doConnect) { doConnect = false; connectBLE(); }
+
+    // The original 123\TUNE+ Android app pings BLE devices every 1650 ms.
+    static uint32_t lastPing = 0;
+    if (g_conn && millis() - lastPing >= 1650) {
+        lastPing = millis();
+        sendRaytacPing();
+    }
 
     // Heartbeat: jede Sekunde Status loggen wenn verbunden aber keine Daten
     static uint32_t lastHb = 0;
