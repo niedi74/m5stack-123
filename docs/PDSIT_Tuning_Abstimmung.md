@@ -111,4 +111,49 @@
 
 Sobald Logging verfügbar:
 
-<!-- TODO: Messpunkte ergänzen -->
+<!-- TODO: Kanäle definieren: Lambda, CHT Zyl.3, MAP, RPM, Verbrauch/Zeit -->
+
+---
+
+## Physikalische Hintergründe
+
+### LKD-Wirkung (Flächen-Modell)
+
+Luftmassenstrom ∝ Düsenfläche (d²)
+
+| LKD | Relative Fläche | vs. 90er |
+|---|---|---|
+| 90 | 8100 | Basis |
+| 100 | 10000 | +23% |
+| 105 | 11025 | +36% |
+| 110 | 12100 | +49% |
+| 115 | 13225 | +63% |
+
+**Real im Teillastbereich (0.1 bar):**
+- LKD wirkt zu ~20% des Gesamtgemisches
+- 36% Luftmehr × 20% Gewichtung = **~7% Abmagerung**
+- Auf Verbrauch: ~5% Ersparnis bei Teillastfahrt
+
+### Venturi-Skalierung
+
+Original 914/2.0: 30mm Venturi → 115 LKD, 135 HD  
+Dein Setup: 32mm Venturi (6,7% größer)
+
+Skalierter Sollwert LKD: 115 × 1,067 = **~122**  
+Skalierter Sollwert HD:  135 × 1,067 = **~144** ✓ (passt zu 145)
+
+→ Deine 105er LKD ist bewusst kleiner (für Teillast-Abmagerung)
+
+---
+
+## Kontakt / Unterstützung
+
+**Vergaser-Berater:** Gisbert (hat 32er Venturi geliefert)
+- Erwähnte: 100er LKD (evt. 90er) als Startwert
+- Erwähnte: 63-65er Leerlaufdüse (aktuell 60er passt besser)
+- Hinweis: Umbau auf wechselbare LKD möglich, aber nicht getestet
+
+---
+
+**Letzte Aktualisierung:** 16.05.2026  
+**Status:** Phase 1 (HD-Test ausstehend)
