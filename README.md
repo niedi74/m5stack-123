@@ -134,6 +134,14 @@ Geschwindigkeit [km/h] = (Impulse/s ÷ 10) × Umfang [m] × 3.6
 
 ---
 
+## Zündkurven-Versionen (`tuning/`)
+
+Der Ordner [`tuning/`](tuning/) enthält Snapshots der jeweils eingestellten
+Zentrifugal- und MAP-Kurven, benannt nach Datum und Fahrzustand.
+Aktuelle Einstellung: [`tuning/kurven_aktuell.md`](tuning/kurven_aktuell.md)
+
+---
+
 ## Interface-Hardware – Übersicht
 
 ### Optokoppler (galvanische Trennung 12V-Bordelektrik → 3,3V ESP32)
@@ -146,7 +154,7 @@ nicht für Datenbusse.
 | Bremslicht | Eingang | Bremse betätigt (Tempomat-Abbruch) |
 | N/P-Kontakt | Eingang | Neutral / Parken erkannt (Automatik) |
 | SET / RES | Eingang | Hella-Tempomat-Bedieneinheit, Set + Resume |
-| Zundplus-Status | Eingang (optional) | Zündung EIN/AUS erkennen (Wake/Sleep) |
+| Zündplus-Status | Eingang (optional) | Zündung EIN/AUS erkennen (Wake/Sleep) |
 | Tempomat-Ausgang | Ausgang | Ansteuerung bestehender Hella-Eingang |
 
 > Typisches Bauteil: PC817 oder TLP291 – Vorwiderstand auf 12V-Seite ca. 680 Ω
@@ -162,7 +170,7 @@ verwendet, sondern ein dedizierter CAN-Transceiver.
 | Schnittstelle | CANH / CANL (differenziell, 120 Ω Abschlusswiderstand je Ende) |
 | ESP32-Anbindung | TX → GPIO, RX → GPIO, TWAI-Peripheral des ESP32 |
 | Baudrate | 500 kBit/s (konfigurierbar) |
-| Buszugang | Kein Galvanik-Isolation nötig, da alle Knoten gemeinsame Masse |
+| Buszugang | Keine Galvanik-Isolation nötig, da alle Knoten gemeinsame Masse |
 
 ---
 
