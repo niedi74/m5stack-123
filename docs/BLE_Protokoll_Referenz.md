@@ -45,7 +45,7 @@ Fahrzeug: VW T2b, 2L Typ 4, Automatik, luftgekühlt
 |---|---|---|---|
 | Device Name | `0x2A00` | READ, WRITE | `123\TUNE+` |
 | Appearance | `0x2A01` | READ | `[0]` Unknown |
-| Preferred Connection Params | `0x2A04` | READ | 20–40 ms, Latency 0, Timeout 400 |
+| Preferred Connection Params | `0x2A04` | READ | `Connection Interval: 20.00ms - 40.00ms, Max Latency: 0, Supervision Timeout Multiplier: 400` |
 | Central Address Resolution | `0x2AA6` | READ | Supported |
 
 ### 3.2 Generic Attribute (`0x1801`)
@@ -296,6 +296,8 @@ bool connectAndSubscribe(NimBLEAddress addr) {
 | 4 | **0x42 Frame** konstant Wert 70 im Leerlauf — noch zu prüfen ob sich bei Last ändert |
 | 5 | **Timeout** nach ~90 Sekunden Inaktivität (GATT CONN TIMEOUT Error 8) |
 | 6 | **MAC-Adresse** ist ein statischer Random-Address-Typ (MSB `0xEF` → Bits 7:6 = `11`) |
+| 7 | **CCCD bleibt nach Disconnect aktiv** — nRF Connect zeigt nach Trennung weiterhin `Notifications enabled` im CCCD-Feld (verifiziert Screenshot 14:09). Der ESP32 muss daher nach Reconnect nicht erneut `0x0100` schreiben — `registerForNotify()` übernimmt das automatisch |
+| 8 | **Advertising pausiert während Verbindung** — In der nRF Connect Advertising History ist eine Lücke sichtbar (18:26–18:29 Uhr), genau während der BLE-Verbindung. Normales Verhalten des nRF52 |
 
 ---
 
@@ -353,9 +355,19 @@ Characteristics. Dies ist normales Verhalten und kein Fehler.
 
 ### 11.4 Advertising History
 
-- Intervall: **99–110 ms** (Mittel ~103 ms) — bestätigt
-- RSSI-Verlauf: stabile Punkte bei −87 bis −91 dBm, kurze Lücke = Verbindungszeit
-- Advertising pausiert während aktiver BLE-Verbindung (normal bei nRF52)
+Gemessene Packet-Abstände aus der nRF Connect History (exakte Werte):
+
+| Packet-Intervall | Messung |
+|---|---|
+| 99 ms | ✓ gemessen |
+| 105 ms | ✓ gemessen |
+| 108 ms | ✓ gemessen |
+| 110 ms | ✓ gemessen |
+| **Mittelwert** | **~103 ms** |
+
+- RSSI-Verlauf: stabile Punkte bei **−87 bis −91 dBm** (Gerät außerhalb Fahrzeug, ~5–10 m Abstand)
+- **Lücke in der History (18:26–18:29 Uhr):** Advertising pausiert während aktiver BLE-Verbindung — normales Verhalten des nRF52810
+- Nach Verbindungstrennung (18:29) erscheinen sofort wieder Advertising-Pakete
 
 ### 11.5 Abgleich Referenzdaten → Screenshots
 
@@ -372,7 +384,7 @@ Characteristics. Dies ist normales Verhalten und kein Fehler.
 | NUS UUID | `6e400001-...` | `6e400001-...` | ✓ |
 | RX UUID | `6e400002-...` | `6e400002-...` | ✓ |
 | TX UUID | `6e400003-...` | `6e400003-...` | ✓ |
-| Conn Params | 20–40ms, Lat 0, TO 400 | 20–40ms, Max Latency 0, Timeout 400 | ✓ |
+| Conn Params | 20–40ms, Lat 0, TO 400 | `Connection Interval: 20.00ms - 40.00ms, Max Latency: 0, Supervision Timeout Multiplier: 400` | ✓ |
 
 ---
 
