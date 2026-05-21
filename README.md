@@ -134,6 +134,38 @@ Geschwindigkeit [km/h] = (Impulse/s ÷ 10) × Umfang [m] × 3.6
 
 ---
 
+## Interface-Hardware – Übersicht
+
+### Optokoppler (galvanische Trennung 12V-Bordelektrik → 3,3V ESP32)
+
+Optokoppler werden ausschließlich für **digitale KFZ-Signale** eingesetzt –
+nicht für Datenbusse.
+
+| Signal | Richtung | Beschreibung |
+|---|---|---|
+| Bremslicht | Eingang | Bremse betätigt (Tempomat-Abbruch) |
+| N/P-Kontakt | Eingang | Neutral / Parken erkannt (Automatik) |
+| SET / RES | Eingang | Hella-Tempomat-Bedieneinheit, Set + Resume |
+| Zundplus-Status | Eingang (optional) | Zündung EIN/AUS erkennen (Wake/Sleep) |
+| Tempomat-Ausgang | Ausgang | Ansteuerung bestehender Hella-Eingang |
+
+> Typisches Bauteil: PC817 oder TLP291 – Vorwiderstand auf 12V-Seite ca. 680 Ω
+
+### CAN-Bus – SN65HVD230
+
+Für die CAN-Bus-Kommunikation zwischen ESP32-Knoten wird **kein Optokoppler**
+verwendet, sondern ein dedizierter CAN-Transceiver.
+
+| Parameter | Details |
+|---|---|
+| Chip | **SN65HVD230** (Texas Instruments, 3,3V-kompatibel) |
+| Schnittstelle | CANH / CANL (differenziell, 120 Ω Abschlusswiderstand je Ende) |
+| ESP32-Anbindung | TX → GPIO, RX → GPIO, TWAI-Peripheral des ESP32 |
+| Baudrate | 500 kBit/s (konfigurierbar) |
+| Buszugang | Kein Galvanik-Isolation nötig, da alle Knoten gemeinsame Masse |
+
+---
+
 ## Entwicklungs-Roadmap
 
 ### Phase 1 – BLE Display ✅
@@ -157,19 +189,21 @@ Geschwindigkeit [km/h] = (Impulse/s ÷ 10) × Umfang [m] × 3.6
 - Fahrt-Sessions mit Start/Stop per Encoder
 
 ### Phase 5 – CAN-Bus & Multi-ESP32
-- CAN-Bus als Backbone zwischen mehreren ESP32-Knoten
-- Zentraler Datenbroker, verteilte Sensoren
+- **SN65HVD230** CAN-Transceiver an jedem ESP32-Knoten
+- CAN-Bus als Backbone (TWAI-Peripheral, 500 kBit/s)
+- Zentraler Datenbroker, verteilte Sensor-Knoten
 - OTA-Updates über CAN oder WiFi
 
-### Phase 6 – Tempomat (Cruise Control)
-- Lesen des Bremssignals via Optokoppler
-- Set / + / − / Resume-Steuerung
-- Ansteuerung Drosselklappe / Einspritzsystem per Optokoppler
+### Phase 6 – Tempomat (Cruise Control via Hella-Einheit)
+- **Optokoppler-Eingänge:** Bremssignal, N/P-Kontakt, SET / RES der Hella-Bedieneinheit
+- **Optokoppler-Ausgang:** Ansteuerung des Hella-Tempomat-Eingangs
+- Optional: Zündplus-Status per Optokoppler für Wake/Sleep
+- Kein Optokoppler am CAN-Bus
 
 ### Phase 7 – Erweiterte Sensorik
 - 2. Öldrucksensor + Öltemperatur
 - Zylinderkopf-Temperatursensor (CHT)
-- Alle Kanäle im Datenlog und auf Display-Seiten
+- Alle Kanäle im Datenlog und auf zusätzlichen Display-Seiten
 
 ---
 
