@@ -1,16 +1,19 @@
 #include <Arduino.h>
 #include <NimBLEDevice.h>
 #include <M5GFX.h>
+#include <lgfx/v1/panel/Panel_GC9A01.hpp>
+#include <lgfx/v1/platforms/esp32/Bus_SPI.hpp>
+#include <lgfx/v1/platforms/esp32/Light_PWM.hpp>
 
 // ─── GC9A01 Display (M5Stack Dial pinout) ────────────────────────────────────
 class LGFX : public lgfx::LGFX_Device {
-    lgfx::Panel_GC9A01 _panel;
-    lgfx::Bus_SPI      _bus;
-    lgfx::Light_PWM    _light;
+    lgfx::Panel_GC9A01 _gc9a01;
+    lgfx::Bus_SPI      _spi;
+    lgfx::Light_PWM    _bl;
 public:
     LGFX() {
         {
-            auto cfg    = _bus.config();
+            auto cfg    = _spi.config();
             cfg.spi_host   = SPI2_HOST;
             cfg.spi_mode   = 0;
             cfg.freq_write = 40000000;
@@ -18,11 +21,11 @@ public:
             cfg.pin_mosi   = 5;
             cfg.pin_miso   = -1;
             cfg.pin_dc     = 4;
-            _bus.config(cfg);
-            _panel.setBus(&_bus);
+            _spi.config(cfg);
+            _gc9a01.setBus(&_spi);
         }
         {
-            auto cfg         = _panel.config();
+            auto cfg         = _gc9a01.config();
             cfg.pin_cs       = 7;
             cfg.pin_rst      = 8;
             cfg.pin_busy     = -1;
@@ -31,18 +34,18 @@ public:
             cfg.invert       = true;
             cfg.offset_x     = 0;
             cfg.offset_y     = 0;
-            _panel.config(cfg);
+            _gc9a01.config(cfg);
         }
         {
-            auto cfg        = _light.config();
+            auto cfg        = _bl.config();
             cfg.pin_bl      = 9;
             cfg.invert      = false;
             cfg.freq        = 44100;
             cfg.pwm_channel = 7;
-            _light.config(cfg);
-            _panel.setLight(&_light);
+            _bl.config(cfg);
+            _gc9a01.setLight(&_bl);
         }
-        setPanel(&_panel);
+        setPanel(&_gc9a01);
     }
 };
 
@@ -99,7 +102,7 @@ class ClientCB : public NimBLEClientCallbacks {
     void onConnect(NimBLEClient*) override {
         g_conn = true;
     }
-    void onDisconnect(NimBLEClient*, int) override {
+    void onDisconnect(NimBLEClient*) override {
         g_conn = false;
         startScan();
     }
@@ -144,8 +147,8 @@ static void connectBLE() {
     auto* chr = svc->getCharacteristic(NUS_TX);
     if (!chr || !chr->canNotify()) { pClient->disconnect(); return; }
 
-    chr->registerForNotify([](NimBLERemoteCharacteristic*, uint8_t* data,
-                              size_t len, bool) {
+    chr->subscribe(true, [](NimBLERemoteCharacteristic*, uint8_t* data,
+                            size_t len, bool) {
         decodeFrame(data, len);
     });
 }
