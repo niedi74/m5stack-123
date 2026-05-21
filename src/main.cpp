@@ -56,21 +56,34 @@ static const char* NUS_TX  = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 static const char* TARGET  = "ef:a8:b2:de:e0:9e";
 
 // ─── Hardware ─────────────────────────────────────────────────────────────────
-#define BTN_PIN 42  // encoder push-button, active LOW
+#define BTN_PIN      42
+#define LONG_PRESS_MS 600
 
 // ─── App State ────────────────────────────────────────────────────────────────
 static volatile float g_rpm  = 0;
 static volatile float g_adv  = 0;
 static volatile float g_tmp  = 0;
 static volatile float g_vlt  = 0;
-static volatile float g_map  = 0;  // 0x32 Absolutdruck kPa
-static volatile float g_cur  = 0;  // 0x35 Zuendstrom A
+static volatile float g_map  = 0;
+static volatile float g_cur  = 0;
 static volatile bool  g_conn = false;
-static bool           g_view = false;  // false=ADV/RPM  true=TMP/VLT
+static bool           g_view   = false;   // false=ADV/RPM  true=TMP/VLT
+static bool           g_rawlog = true;    // Roh-Dump im Terminal an/aus
 
 static NimBLEClient* pClient   = nullptr;
 static NimBLEAddress targetAddr;
 static volatile bool  doConnect = false;
+
+// ─── Raw hex dump ───────────────────────────────────────────────────────────────
+static void rawDump(const uint8_t* d, size_t n) {
+    Serial.printf("[%7lums] RAW(%d):", millis(), (int)n);
+    for (size_t i = 0; i < n; i++)
+        Serial.printf(" %02X", d[i]);
+    Serial.print("  |");
+    for (size_t i = 0; i < n; i++)
+        Serial.print((char)(d[i] >= 0x20 && d[i] < 0x7F ? d[i] : '.'));
+    Serial.println();
+}
 
 // ─── Frame decoder ────────────────────────────────────────────────────────────
 static int hexnib(uint8_t c) {
@@ -88,34 +101,44 @@ static void decodeFrame(const uint8_t* d, size_t n) {
     switch (d[0]) {
         case 0x30:
             g_rpm = hi * 800.0f + lo * 50.0f;
-            Serial.printf("RPM:  %.0f\n", (float)g_rpm);
+            Serial.printf("  RPM:  %.0f\n", (float)g_rpm);
             break;
         case 0x31:
             g_adv = hi * 3.2f + lo * 0.2f;
-            Serial.printf("ADV:  %.1f deg\n", (float)g_adv);
+            Serial.printf("  ADV:  %.1f deg\n", (float)g_adv);
             break;
         case 0x32:
             g_map = (float)raw;
-            Serial.printf("MAP:  %d kPa\n", raw);
+            Serial.printf("  MAP:  %d kPa\n", raw);
             break;
         case 0x33:
             g_tmp = (float)(raw - 30);
-            Serial.printf("TEMP: %d C\n", raw - 30);
+            Serial.printf("  TEMP: %d C\n", raw - 30);
             break;
         case 0x35:
             g_cur = raw / 8.65f;
-            Serial.printf("CURR: %.1f A\n", raw / 8.65f);
+            Serial.printf("  CURR: %.1f A\n", raw / 8.65f);
             break;
         case 0x41:
             g_vlt = raw / 4.54f;
-            Serial.printf("VOLT: %.2f V\n", raw / 4.54f);
+            Serial.printf("  VOLT: %.2f V\n", raw / 4.54f);
             break;
         case 0x42:
-            Serial.printf("0x42: %d\n", raw);
+            Serial.printf("  0x42: %d\n", raw);
             break;
         case 0x0D:
-            break;  // keepalive / Zyklusende
+            Serial.println("  --- Zyklusende ---");
+            break;
+        default:
+            Serial.printf("  UNBEKANNT typ=0x%02X raw=%d\n", d[0], raw);
+            break;
     }
+}
+
+// Einheitlicher Einstiegspunkt für alle eingehenden Notify-Bytes
+static void onNotify(const uint8_t* data, size_t len) {
+    if (g_rawlog) rawDump(data, len);
+    decodeFrame(data, len);
 }
 
 // ─── NimBLE callbacks ─────────────────────────────────────────────────────────
@@ -184,9 +207,10 @@ static void connectBLE() {
     }
     chr->registerForNotify([](NimBLERemoteCharacteristic*, uint8_t* data,
                                size_t len, bool) {
-        decodeFrame(data, len);
+        onNotify(data, len);
     });
-    Serial.println("BLE: Notify aktiv, Daten laufen...");
+    Serial.printf("BLE: Notify aktiv  [RAW-Log: %s]\n",
+                  g_rawlog ? "AN" : "AUS");
 }
 
 // ─── Display helpers ─────────────────────────────────────────────────────────
@@ -196,9 +220,11 @@ static void drawStatus() {
     display.setTextDatum(TL_DATUM);
     display.setTextColor(g_conn ? (uint32_t)TFT_GREEN : (uint32_t)TFT_RED);
     display.drawString(g_conn ? "BLE OK" : "Suche...", 6, 4);
-    display.setTextColor(TFT_DARKGREY);
     display.setTextDatum(TR_DATUM);
-    display.drawString(g_view ? "T/V" : "IGN", 234, 4);
+    // RAW-Log-Indikator: oranges R wenn aktiv
+    display.setTextColor(g_rawlog ? (uint32_t)TFT_ORANGE : (uint32_t)TFT_DARKGREY);
+    display.drawString(g_view ? (g_rawlog ? "T/V R" : "T/V")
+                               : (g_rawlog ? "IGN R" : "IGN"), 234, 4);
 }
 
 static void drawHalf(LGFX_Sprite& spr, const char* val, const char* lbl,
@@ -230,10 +256,36 @@ static void drawAux() {
     drawHalf(sprBot, buf, "VOLT  V", TFT_YELLOW, 130);
 }
 
+// ─── Encoder-Knopf: kurz = Ansicht wechseln, lang = Raw-Log toggle ──────────
+static void handleButton() {
+    static bool     lastBtn    = HIGH;
+    static uint32_t pressTime  = 0;
+    static bool     longFired  = false;
+
+    bool btn = digitalRead(BTN_PIN);
+
+    if (btn == LOW && lastBtn == HIGH) {           // Taste gedrueckt
+        pressTime = millis();
+        longFired = false;
+    }
+    if (btn == LOW && !longFired &&
+        millis() - pressTime >= LONG_PRESS_MS) {   // Langer Druck
+        longFired = true;
+        g_rawlog  = !g_rawlog;
+        Serial.printf("RAW-Log: %s\n", g_rawlog ? "AN" : "AUS");
+    }
+    if (btn == HIGH && lastBtn == LOW && !longFired) {  // Kurzer Druck
+        g_view = !g_view;
+        Serial.printf("Ansicht: %s\n", g_view ? "TEMP/VOLT" : "ADV/RPM");
+    }
+    lastBtn = btn;
+}
+
 // ─── Arduino entry points ─────────────────────────────────────────────────────
 void setup() {
     Serial.begin(115200);
-    Serial.println("\n=== M5Dial 123TUNE+ BLE Client ===\n");
+    Serial.println("\n=== M5Dial 123TUNE+ BLE Client ===");
+    Serial.println("Knopf kurz: Ansicht  |  Knopf lang: RAW-Log an/aus\n");
 
     display.init();
     display.setRotation(0);
@@ -251,18 +303,7 @@ void setup() {
 }
 
 void loop() {
-    // encoder button with debounce
-    static bool     lastBtn   = HIGH;
-    static uint32_t tDebounce = 0;
-    bool btn = digitalRead(BTN_PIN);
-    if (btn != lastBtn && millis() - tDebounce > 50) {
-        tDebounce = millis();
-        if (btn == LOW) {
-            g_view = !g_view;
-            Serial.printf("Ansicht: %s\n", g_view ? "TEMP/VOLT" : "ADV/RPM");
-        }
-    }
-    lastBtn = btn;
+    handleButton();
 
     if (doConnect) {
         doConnect = false;
@@ -272,5 +313,5 @@ void loop() {
     drawStatus();
     g_view ? drawAux() : drawMain();
 
-    delay(100);
+    delay(50);
 }
