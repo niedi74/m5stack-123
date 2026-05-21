@@ -62,6 +62,15 @@ Leer.
 > **Wichtig:** Kein Handshake, kein PIN, keine Authentifizierung nötig.  
 > Nach Subscribe auf TX kommen sofort Live-Daten. Kein Write auf RX erforderlich.
 
+**CCCD-Zustände (UUID `0x2902`) — verifiziert per Screenshot:**
+
+| Zustand | CCCD-Wert | nRF Connect zeigt |
+|---|---|---|
+| Vor Subscribe | `0x0000` | `Notifications and indications disabled` |
+| Nach Subscribe | `0x0100` | `Notifications enabled` |
+
+`registerForNotify()` in NimBLE schreibt automatisch `0x0100` — identisch zum manuellen Subscribe in nRF Connect.
+
 ### 3.4 Tx Power (`0x1804`)
 
 | Characteristic | UUID | Properties | Wert |
@@ -80,7 +89,10 @@ Leer.
 
 | Characteristic | UUID | Properties | Wert |
 |---|---|---|---|
-| Battery Level | `0x2A19` | NOTIFY, READ | 48% (`0x64` = 100% max) |
+| Battery Level | `0x2A19` | NOTIFY, READ | 48% |
+
+> Battery CCCD bleibt dauerhaft `Notifications and indications disabled` —  
+> das Gerät sendet Batteriestand nicht automatisch per Notify.
 
 ---
 
@@ -97,6 +109,11 @@ Byte[2]  Low-Nibble     ASCII-Hex-Zeichen  '0'–'9', 'A'–'F'
 Byte[3]  Checksum       (Byte[0] + Byte[1] + Byte[2]) - 0x50
 Byte[4]  Terminator     0x20 (Space) bei normalen Frames, 0x0D beim 0x42-Frame
 ```
+
+> **Hinweis nRF Connect:** Die App zeigt in der TX-Characteristic immer nur
+> **4 Zeichen** (Byte[0]–Byte[3]) — das abschließende `0x20`-Byte (Space) wird
+> nicht dargestellt. Beispiel: `016G` = vollständiger Frame `30 31 36 47 20`.
+> Der Decoder benötigt nur Byte[0..2] und ist damit unabhängig von der Frame-Länge.
 
 **Dekodierung der Nibbles (Python):**
 
@@ -239,42 +256,25 @@ bool connectAndSubscribe(NimBLEAddress addr) {
     NimBLERemoteCharacteristic* chr = svc->getCharacteristic(NUS_TX);
     if (!chr || !chr->canNotify()) { client->disconnect(); return false; }
 
-    // Callback für eingehende Notify-Frames registrieren
-    // Kein Write auf NUS_RX nötig!
     chr->registerForNotify([](NimBLERemoteCharacteristic*, uint8_t* data,
                                size_t len, bool) {
-        if (len < 3) return;
-        int hi  = 0, lo = 0;
+        if (len < 3) return;  // mind. 3 Bytes nötig (Typ + 2 Nibbles)
         auto h = [](uint8_t c) -> int {
             if (c >= '0' && c <= '9') return c - '0';
             if (c >= 'A' && c <= 'F') return c - 'A' + 10;
             return 0;
         };
-        hi = h(data[1]);  lo = h(data[2]);
+        int hi = h(data[1]), lo = h(data[2]);
         switch (data[0]) {
-            case 0x30: Serial.printf("RPM:  %d\n",   hi*800 + lo*50);      break;
-            case 0x31: Serial.printf("ADV:  %.1f°\n", hi*3.2f + lo*0.2f);  break;
-            case 0x32: Serial.printf("MAP:  %d kPa\n", (hi<<4)|lo);        break;
-            case 0x33: Serial.printf("TEMP: %d°C\n",  ((hi<<4)|lo) - 30);  break;
-            case 0x35: Serial.printf("CURR: %.1f A\n", ((hi<<4)|lo)/8.65f);break;
-            case 0x41: Serial.printf("VOLT: %.2f V\n", ((hi<<4)|lo)/4.54f);break;
+            case 0x30: Serial.printf("RPM:  %d\n",    hi*800 + lo*50);       break;
+            case 0x31: Serial.printf("ADV:  %.1f°\n",  hi*3.2f + lo*0.2f);   break;
+            case 0x32: Serial.printf("MAP:  %d kPa\n", (hi<<4)|lo);         break;
+            case 0x33: Serial.printf("TEMP: %d°C\n",   ((hi<<4)|lo) - 30);   break;
+            case 0x35: Serial.printf("CURR: %.1f A\n",  ((hi<<4)|lo)/8.65f); break;
+            case 0x41: Serial.printf("VOLT: %.2f V\n",  ((hi<<4)|lo)/4.54f); break;
         }
     });
     return true;
-}
-
-// ── Setup ─────────────────────────────────────────────────────────────────────
-void setup() {
-    Serial.begin(115200);
-    NimBLEDevice::init("ESP32-NUS-Client");
-    NimBLEDevice::setPower(ESP_PWR_LVL_P9);
-
-    auto* scan = NimBLEDevice::getScan();
-    scan->setAdvertisedDeviceCallbacks(new ScanCB());
-    scan->setActiveScan(true);
-    scan->setInterval(100);
-    scan->setWindow(99);
-    scan->start(0, nullptr, false);  // 0 = unbegrenzt scannen
 }
 ```
 
@@ -308,11 +308,71 @@ AD Type 0xFF  Manufacturer Specific Data:
                         ^^^^ vermutlich Seriennummer / Geräte-ID
 
 Beispiel vollständiger Raw-Payload (aus nRF Connect History):
-  02 01 06                       Flags: LE General Discoverable, BR/EDR not supported
+  02 01 06                           Flags: LE General Discoverable, BR/EDR not supported
   0A 09 31 32 33 5C 54 55 4E 45 2B   Complete Local Name: "123\TUNE+"
-  05 FF 1A 09 00 05 50 6C        Manufacturer Data: ID=0x091A, data=0x0005506C
-  02 0A 04                       TX Power Level: 4 dBm
+  05 FF 1A 09 00 05 50 6C            Manufacturer Data: ID=0x091A, data=0x0005506C
+  02 0A 04                           TX Power Level: 4 dBm
+  11 07 9E CA DC 24 0E E5 A9 E0 93   Complete 128-bit Service UUID:
+        F3 93 A3 B5 01 00 40 6E            6e400001-b5a3-f393-e0a9-e50e24dcca9e
 ```
+
+RSSI im Screenshot: **−87 bis −91 dBm** (Gerät außerhalb Fahrzeug, ca. 5–10m Abstand).
+Am Fahrzeug zu erwarten: −60 bis −70 dBm.
+
+---
+
+## 11. Verifizierung via nRF Connect — Screenshot-Abgleich
+
+*Aufgenommen 2026-05-20, Motor läuft, Leerlauf, nRF Connect for Android*
+
+### 11.1 Live-Werte in TX Characteristic bestätigt
+
+nRF Connect zeigt den aktuellen Notify-Wert direkt im Feld „Value“ der TX Characteristic.
+Dabei werden nur **4 Zeichen** angezeigt — Byte[0]–Byte[3], das 5. Byte (Terminator `0x20`)
+wird von der App nicht dargestellt.
+
+| nRF Connect zeigt | Vollständiger Frame (Hex) | Dekodiert |
+|---|---|---|
+| `016G` | `30 31 36 47 20` | RPM: 1×800 + 6×50 = **1100 U/min** |
+| `264L` | `32 36 34 4C 20` | MAP: 0x64 = **100 kPa** |
+| `51DZ` | `35 31 44 5A 20` | Strom: 0x1D=29 ÷ 8.65 = **3.35 A** |
+
+Alle drei Werte mit Checksum-Formel `(B0+B1+B2)−0x50` verifiziert ✓
+
+### 11.2 CCCD-Zustände live beobachtet
+
+- **Vor Subscribe:** CCCD `0x2902` = `Notifications and indications disabled`
+- **Nach Subscribe (nRF Connect-Klick auf Notify-Icon):** = `Notifications enabled`
+- **Battery CCCD:** Bleibt dauerhaft `disabled` — Akku-Notify nicht aktiv
+
+### 11.3 Server-Tab des Telefons
+
+Der „Server“-Tab in nRF Connect zeigt den **lokalen GATT-Server des Telefons selbst**,
+nicht den des 123\TUNE+. Sichtbar: Generic Attribute + Generic Access mit READ-only
+Characteristics. Dies ist normales Verhalten und kein Fehler.
+
+### 11.4 Advertising History
+
+- Intervall: **99–110 ms** (Mittel ~103 ms) — bestätigt
+- RSSI-Verlauf: stabile Punkte bei −87 bis −91 dBm, kurze Lücke = Verbindungszeit
+- Advertising pausiert während aktiver BLE-Verbindung (normal bei nRF52)
+
+### 11.5 Abgleich Referenzdaten → Screenshots
+
+| Feld | Referenz | Screenshot | Übereinstimmung |
+|---|---|---|---|
+| MAC | `EF:A8:B2:DE:E0:9E` | `EF:A8:B2:DE:E0:9E` | ✓ |
+| Firmware | `1.4c(Albertronic BV)` | `version: 1.4c(Albertronic BV)` | ✓ |
+| Chip | `nRF52810 UART AT Command` | `nRF52810 UART AT Command` | ✓ |
+| Serial | `no data!` | `no data!` | ✓ |
+| Battery | 48% | 48% | ✓ |
+| TX Power | 4 dBm | 4 dBm | ✓ |
+| Company ID | `0x091A` | `Albertronic BV <0x091A>` | ✓ |
+| Mfr Data | `0x0005506C` | `0x0005506C` | ✓ |
+| NUS UUID | `6e400001-...` | `6e400001-...` | ✓ |
+| RX UUID | `6e400002-...` | `6e400002-...` | ✓ |
+| TX UUID | `6e400003-...` | `6e400003-...` | ✓ |
+| Conn Params | 20–40ms, Lat 0, TO 400 | 20–40ms, Max Latency 0, Timeout 400 | ✓ |
 
 ---
 
