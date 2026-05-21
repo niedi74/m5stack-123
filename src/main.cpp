@@ -1,19 +1,16 @@
 #include <Arduino.h>
 #include <NimBLEDevice.h>
 #include <M5GFX.h>
-#include <lgfx/v1/panel/Panel_GC9A01.hpp>
-#include <lgfx/v1/platforms/esp32/Bus_SPI.hpp>
-#include <lgfx/v1/platforms/esp32/Light_PWM.hpp>
 
 // ─── GC9A01 Display (M5Stack Dial pinout) ────────────────────────────────────
 class LGFX : public lgfx::LGFX_Device {
-    lgfx::Panel_GC9A01 _gc9a01;
-    lgfx::Bus_SPI      _spi;
-    lgfx::Light_PWM    _bl;
+    lgfx::Panel_GC9A01 _panel;
+    lgfx::Bus_SPI      _bus;
+    lgfx::Light_PWM    _light;
 public:
     LGFX() {
         {
-            auto cfg    = _spi.config();
+            auto cfg       = _bus.config();
             cfg.spi_host   = SPI2_HOST;
             cfg.spi_mode   = 0;
             cfg.freq_write = 40000000;
@@ -21,11 +18,11 @@ public:
             cfg.pin_mosi   = 5;
             cfg.pin_miso   = -1;
             cfg.pin_dc     = 4;
-            _spi.config(cfg);
-            _gc9a01.setBus(&_spi);
+            _bus.config(cfg);
+            _panel.setBus(&_bus);
         }
         {
-            auto cfg         = _gc9a01.config();
+            auto cfg         = _panel.config();
             cfg.pin_cs       = 7;
             cfg.pin_rst      = 8;
             cfg.pin_busy     = -1;
@@ -34,18 +31,18 @@ public:
             cfg.invert       = true;
             cfg.offset_x     = 0;
             cfg.offset_y     = 0;
-            _gc9a01.config(cfg);
+            _panel.config(cfg);
         }
         {
-            auto cfg        = _bl.config();
+            auto cfg        = _light.config();
             cfg.pin_bl      = 9;
             cfg.invert      = false;
             cfg.freq        = 44100;
             cfg.pwm_channel = 7;
-            _bl.config(cfg);
-            _gc9a01.setLight(&_bl);
+            _light.config(cfg);
+            _panel.setLight(&_light);
         }
-        setPanel(&_gc9a01);
+        setPanel(&_panel);
     }
 };
 
@@ -66,6 +63,8 @@ static volatile float g_rpm  = 0;
 static volatile float g_adv  = 0;
 static volatile float g_tmp  = 0;
 static volatile float g_vlt  = 0;
+static volatile float g_map  = 0;  // 0x32 Absolutdruck kPa
+static volatile float g_cur  = 0;  // 0x35 Zuendstrom A
 static volatile bool  g_conn = false;
 static bool           g_view = false;  // false=ADV/RPM  true=TMP/VLT
 
@@ -83,15 +82,39 @@ static int hexnib(uint8_t c) {
 
 static void decodeFrame(const uint8_t* d, size_t n) {
     if (n < 3) return;
-    int hi = hexnib(d[1]);
-    int lo = hexnib(d[2]);
+    int hi  = hexnib(d[1]);
+    int lo  = hexnib(d[2]);
+    int raw = (hi << 4) | lo;
     switch (d[0]) {
-        case 0x30: g_rpm = hi * 800.0f + lo * 50.0f;           break; // RPM
-        case 0x31: g_adv = hi * 3.2f   + lo * 0.2f;           break; // Advance°
-        case 0x33: g_tmp = (float)((hi << 4 | lo) - 30);      break; // Temp°C
-        case 0x41: g_vlt = (hi << 4 | lo) / 4.54f;            break; // Volt
-        case 0x0D:                                                      // \r
-        case 0x42: break;                                              // 'B', ignore
+        case 0x30:
+            g_rpm = hi * 800.0f + lo * 50.0f;
+            Serial.printf("RPM:  %.0f\n", (float)g_rpm);
+            break;
+        case 0x31:
+            g_adv = hi * 3.2f + lo * 0.2f;
+            Serial.printf("ADV:  %.1f deg\n", (float)g_adv);
+            break;
+        case 0x32:
+            g_map = (float)raw;
+            Serial.printf("MAP:  %d kPa\n", raw);
+            break;
+        case 0x33:
+            g_tmp = (float)(raw - 30);
+            Serial.printf("TEMP: %d C\n", raw - 30);
+            break;
+        case 0x35:
+            g_cur = raw / 8.65f;
+            Serial.printf("CURR: %.1f A\n", raw / 8.65f);
+            break;
+        case 0x41:
+            g_vlt = raw / 4.54f;
+            Serial.printf("VOLT: %.2f V\n", raw / 4.54f);
+            break;
+        case 0x42:
+            Serial.printf("0x42: %d\n", raw);
+            break;
+        case 0x0D:
+            break;  // keepalive / Zyklusende
     }
 }
 
@@ -101,9 +124,11 @@ static void startScan();
 class ClientCB : public NimBLEClientCallbacks {
     void onConnect(NimBLEClient*) override {
         g_conn = true;
+        Serial.println("BLE: verbunden");
     }
     void onDisconnect(NimBLEClient*) override {
         g_conn = false;
+        Serial.println("BLE: getrennt, starte Scan neu");
         startScan();
     }
 };
@@ -113,6 +138,7 @@ class ScanCB : public NimBLEAdvertisedDeviceCallbacks {
         String addr = dev->getAddress().toString().c_str();
         addr.toLowerCase();
         if (addr == TARGET) {
+            Serial.printf("BLE: Geraet gefunden %s\n", addr.c_str());
             NimBLEDevice::getScan()->stop();
             targetAddr = dev->getAddress();
             doConnect  = true;
@@ -124,36 +150,46 @@ static ClientCB clientCB;
 static ScanCB   scanCB;
 
 static void startScan() {
+    Serial.printf("BLE: Scan laeuft, suche %s\n", TARGET);
     auto* s = NimBLEDevice::getScan();
     s->setAdvertisedDeviceCallbacks(&scanCB);
     s->setActiveScan(true);
     s->setInterval(100);
     s->setWindow(99);
-    s->start(0, nullptr, false);  // 0 = scan indefinitely
+    s->start(0, nullptr, false);
 }
 
 static void connectBLE() {
+    Serial.println("BLE: verbinde...");
     if (!pClient) {
         pClient = NimBLEDevice::createClient();
         pClient->setClientCallbacks(&clientCB, false);
     }
     if (!pClient->connect(targetAddr)) {
+        Serial.println("BLE: Verbindung fehlgeschlagen, neuer Scan");
         startScan();
         return;
     }
     auto* svc = pClient->getService(NUS_SVC);
-    if (!svc) { pClient->disconnect(); return; }
-
+    if (!svc) {
+        Serial.println("BLE: NUS Service nicht gefunden!");
+        pClient->disconnect();
+        return;
+    }
     auto* chr = svc->getCharacteristic(NUS_TX);
-    if (!chr || !chr->canNotify()) { pClient->disconnect(); return; }
-
-    chr->subscribe(true, [](NimBLERemoteCharacteristic*, uint8_t* data,
-                            size_t len, bool) {
+    if (!chr || !chr->canNotify()) {
+        Serial.println("BLE: TX Characteristic nicht verfuegbar!");
+        pClient->disconnect();
+        return;
+    }
+    chr->registerForNotify([](NimBLERemoteCharacteristic*, uint8_t* data,
+                               size_t len, bool) {
         decodeFrame(data, len);
     });
+    Serial.println("BLE: Notify aktiv, Daten laufen...");
 }
 
-// ─── Display helpers ──────────────────────────────────────────────────────────
+// ─── Display helpers ─────────────────────────────────────────────────────────
 static void drawStatus() {
     display.fillRect(0, 0, 240, 20, TFT_BLACK);
     display.setFont(&fonts::FreeSans9pt7b);
@@ -197,6 +233,7 @@ static void drawAux() {
 // ─── Arduino entry points ─────────────────────────────────────────────────────
 void setup() {
     Serial.begin(115200);
+    Serial.println("\n=== M5Dial 123TUNE+ BLE Client ===\n");
 
     display.init();
     display.setRotation(0);
@@ -220,7 +257,10 @@ void loop() {
     bool btn = digitalRead(BTN_PIN);
     if (btn != lastBtn && millis() - tDebounce > 50) {
         tDebounce = millis();
-        if (btn == LOW) g_view = !g_view;
+        if (btn == LOW) {
+            g_view = !g_view;
+            Serial.printf("Ansicht: %s\n", g_view ? "TEMP/VOLT" : "ADV/RPM");
+        }
     }
     lastBtn = btn;
 
