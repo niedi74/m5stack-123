@@ -540,8 +540,7 @@ static void handleRoot() {
     html += "<input name='ssid' placeholder='SSID'><input name='pass' placeholder='Password' type='password'>";
     html += "<button type='submit'>Save WiFi and reboot</button></form>";
     html += "<a href='/wps'>Start WPS</a>";
-    html += "<p class='muted'>WPS: first click Start WPS here, then press Connect/WPS on the FRITZ!Box.</p>";
-    html += "<p class='muted'>If no home WiFi is saved, connect to AP M5Dial-123-Setup and open 192.168.4.1.</p></div></div></div>";
+    html += "<p class='muted'>WPS: first click Start WPS here, then press Connect/WPS on the FRITZ!Box.</p></div></div></div>";
     html += "<script>";
     html += "function c(s){return s>0?'red':s<0?'blue':'orange'}";
     html += "function paint(d){if(!d)return;";
