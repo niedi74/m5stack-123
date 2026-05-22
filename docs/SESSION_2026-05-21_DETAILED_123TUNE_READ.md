@@ -488,6 +488,10 @@ Firmware change in `src/main.cpp`:
 LIVE rpm=1000 adv=13.4 map=100 temp= 19 volt=13.7 cur=3.3 rx=1234
 ```
 
+The compact `LIVE` line is emitted only when decoded RPM is greater than
+650 U/min. This keeps ignition-only and start/stop setup noise out of
+standstill and road-test logs.
+
 This format is intended for the next long-running driving/logging test because
 it is much easier to store and compare than the raw 5-byte notification dump.
 

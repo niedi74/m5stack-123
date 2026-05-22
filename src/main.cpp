@@ -76,6 +76,7 @@ static NimBLEAddress targetAddr;
 static volatile bool  doConnect = false;
 
 static constexpr bool kReadOnConnect = false;  // live mode stays quiet; long press starts read-only dump
+static constexpr float kLogMinRpm = 650.0f;    // suppress ignition/start-only noise in drive logs
 
 static uint8_t charProps(NimBLERemoteCharacteristic* c) {
     uint8_t props = 0;
@@ -498,7 +499,7 @@ void loop() {
     }
 
     static uint32_t lastLive = 0;
-    if (g_conn && g_rxCnt > 0 && millis() - lastLive >= 500) {
+    if (g_conn && g_rxCnt > 0 && g_rpm > kLogMinRpm && millis() - lastLive >= 500) {
         lastLive = millis();
         printLiveSummary();
     }
