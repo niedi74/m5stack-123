@@ -49,6 +49,8 @@ static const char* TARGET  = "ef:a8:b2:de:e0:9e";
 
 // --- Hardware ---
 #define BTN_PIN       42
+#define ENC_A_PIN     41
+#define ENC_B_PIN     40
 #define LONG_PRESS_MS 600
 
 // --- On-screen log ---
@@ -78,6 +80,11 @@ static bool              g_view  = false;   // false=ADV/RPM  true=TMP/VLT
 static bool              g_rawlog = false;
 static bool              g_readRequested = false;
 static bool              g_readBusy = false;
+static bool              g_tuneArmed = false;
+static bool              g_tuneActive = false;
+static int               g_tuneSteps = 0;
+static int8_t            g_encoderAccum = 0;
+static uint32_t          g_lastTuneStepMs = 0;
 
 static NimBLEClient* pClient   = nullptr;
 static NimBLERemoteCharacteristic* pNusRx = nullptr;
@@ -109,7 +116,7 @@ static String      g_serialLine;
 
 static const char* LOG_FILE = "/drive.csv";
 static const char* OLD_LOG_FILE = "/drive_old.csv";
-static const char* LOG_HEADER = "ms;zeit;epoch;rpm;zuendung_grad;map_kpa;temp_c;spannung_v;spule_a;rx";
+static const char* LOG_HEADER = "ms;zeit;epoch;rpm;zuendung_grad;map_kpa;temp_c;spannung_v;spule_a;rx;tune_active;tune_steps";
 static const char* LOCAL_TZ = "CET-1CEST,M3.5.0,M10.5.0/3";
 static constexpr uint8_t RTC_ADDR = 0x51;
 static constexpr uint8_t RTC_SDA = 11;
@@ -426,7 +433,7 @@ static void appendLiveCsv() {
     File f = SPIFFS.open(LOG_FILE, FILE_APPEND);
     if (!f) return;
     String ts = localTimestamp();
-    f.printf("%lu;%s;%ld;%d;%s;%d;%d;%s;%s;%lu\n",
+    f.printf("%lu;%s;%ld;%d;%s;%d;%d;%s;%s;%lu;%d;%+d\n",
              (unsigned long)millis(),
              ts.c_str(),
              g_timeValid ? (long)time(nullptr) : 0L,
@@ -436,7 +443,9 @@ static void appendLiveCsv() {
              (int)g_tmp,
              deFloat((float)g_vlt, 1).c_str(),
              deFloat((float)g_cur, 1).c_str(),
-             (unsigned long)g_rxCnt);
+             (unsigned long)g_rxCnt,
+             g_tuneActive ? 1 : 0,
+             g_tuneSteps);
     f.close();
 }
 
@@ -744,6 +753,10 @@ static void printWifiStatus() {
                   g_ntpPolls);
 }
 
+static bool tuneSendToggle();
+static bool tuneStep(int dir);
+static void tuneZero();
+
 static void handleSerialCommand(String line) {
     line.trim();
     if (line.length() == 0) return;
@@ -797,6 +810,59 @@ static void handleSerialCommand(String line) {
         } else {
             Serial.println("[TIME] invalid epoch");
         }
+        return;
+    }
+
+    if (line.equalsIgnoreCase("tune_status")) {
+        Serial.printf("[TUNE] armed=%d active=%d steps=%+d conn=%d rpm=%d adv=%.1f map=%d\n",
+                      g_tuneArmed ? 1 : 0,
+                      g_tuneActive ? 1 : 0,
+                      g_tuneSteps,
+                      g_conn ? 1 : 0,
+                      (int)g_rpm,
+                      (float)g_adv,
+                      (int)g_map);
+        return;
+    }
+
+    if (line.equalsIgnoreCase("tune_arm")) {
+        g_tuneArmed = true;
+        pushLog("Tune ARM");
+        Serial.println("[TUNE] armed. use tune_on, tune_up, tune_down, tune_zero, tune_off");
+        return;
+    }
+
+    if (line.equalsIgnoreCase("tune_disarm")) {
+        if (g_tuneActive) tuneSendToggle();
+        g_tuneArmed = false;
+        g_tuneSteps = 0;
+        pushLog("Tune DISARM");
+        Serial.println("[TUNE] disarmed");
+        return;
+    }
+
+    if (line.equalsIgnoreCase("tune_on")) {
+        if (!g_tuneActive) tuneSendToggle();
+        return;
+    }
+
+    if (line.equalsIgnoreCase("tune_off")) {
+        if (g_tuneActive) tuneSendToggle();
+        return;
+    }
+
+    if (line.equalsIgnoreCase("tune_up")) {
+        tuneStep(1);
+        return;
+    }
+
+    if (line.equalsIgnoreCase("tune_down")) {
+        tuneStep(-1);
+        return;
+    }
+
+    if (line.equalsIgnoreCase("tune_zero")) {
+        tuneZero();
         return;
     }
 
@@ -868,7 +934,7 @@ static void handleSerialCommand(String line) {
         return;
     }
 
-    Serial.println("[CMD] unknown. use: wifi_status | time_status | time_set <epoch> | wifi_clear | wifi_dhcp | wifi <ssid> <pass> | wifi_static <ssid> <pass> <ip>");
+    Serial.println("[CMD] unknown. use: wifi_status | time_status | time_set <epoch> | tune_arm | tune_on | tune_up | tune_down | tune_zero | tune_off | tune_disarm | wifi_clear | wifi_dhcp | wifi <ssid> <pass> | wifi_static <ssid> <pass> <ip>");
 }
 
 static void pollSerialCommands() {
@@ -972,6 +1038,66 @@ static void sendRaytacCommand(const char* command) {
     bool ok = pNusRx->writeValue((uint8_t*)buf, strlen(buf), true);
     Serial.printf("[%6lums] TX cmd '%s\\\\r$' -> %s\n",
                   millis(), command, ok ? "OK" : "FAIL");
+}
+
+static bool sendRaytacCommandChecked(const char* command) {
+    if (!g_conn || !pClient || !pClient->isConnected() || !pNusRx) {
+        pushLog("Tune: kein BLE");
+        return false;
+    }
+
+    char buf[24];
+    snprintf(buf, sizeof(buf), "%s\r$", command);
+    bool ok = pNusRx->writeValue((uint8_t*)buf, strlen(buf), true);
+    Serial.printf("[%6lums] TX tune '%s\\\\r$' -> %s\n",
+                  millis(), command, ok ? "OK" : "FAIL");
+    return ok;
+}
+
+static bool tuneSendToggle() {
+    if (!g_tuneArmed) {
+        pushLog("Tune gesperrt");
+        return false;
+    }
+    if (!sendRaytacCommandChecked("T")) return false;
+    g_tuneActive = !g_tuneActive;
+    if (g_tuneActive) {
+        g_tuneSteps = 0;
+        pushLog("Tune EIN");
+    } else {
+        pushLog("Tune AUS");
+    }
+    return true;
+}
+
+static bool tuneStep(int dir) {
+    if (!g_tuneArmed || !g_tuneActive) {
+        pushLog("Tune nicht aktiv");
+        return false;
+    }
+    if (millis() - g_lastTuneStepMs < 150) return false;
+    g_lastTuneStepMs = millis();
+
+    const char* cmd = dir > 0 ? "A" : "R";
+    if (!sendRaytacCommandChecked(cmd)) return false;
+    g_tuneSteps += dir > 0 ? 1 : -1;
+    pushLog("Tune %+d", g_tuneSteps);
+    return true;
+}
+
+static void tuneZero() {
+    if (!g_tuneArmed || !g_tuneActive) {
+        pushLog("Tune nicht aktiv");
+        return;
+    }
+    int guard = 0;
+    while (g_tuneSteps != 0 && guard++ < 30) {
+        int dir = g_tuneSteps > 0 ? -1 : 1;
+        g_lastTuneStepMs = 0;
+        if (!tuneStep(dir)) break;
+        delay(180);
+    }
+    pushLog("Tune zero %+d", g_tuneSteps);
 }
 
 static void runReadOnlyDump() {
@@ -1092,8 +1218,17 @@ static void drawStatus() {
     display.drawString(buf, 66, 34);
 
     display.setTextDatum(MR_DATUM);
-    display.setTextColor(0x303030);
-    display.drawString(g_view ? "T/V" : "ADV", 184, 27);
+    if (g_tuneActive) {
+        display.setTextColor(g_tuneSteps > 0 ? (uint32_t)TFT_RED :
+                             g_tuneSteps < 0 ? (uint32_t)TFT_SKYBLUE :
+                                               (uint32_t)TFT_ORANGE);
+        char tuneBuf[18];
+        snprintf(tuneBuf, sizeof(tuneBuf), "T%+d", g_tuneSteps);
+        display.drawString(tuneBuf, 184, 27);
+    } else {
+        display.setTextColor(g_tuneArmed ? (uint32_t)TFT_ORANGE : (uint32_t)0x303030);
+        display.drawString(g_view ? "T/V" : "ADV", 184, 27);
+    }
 }
 
 // Log view: show BLE steps until data arrives
@@ -1132,27 +1267,41 @@ static void drawMain() {
 
     snprintf(buf, sizeof(buf), "%.1f", (float)g_adv);
     display.setFont(&fonts::Font7);
-    display.setTextColor(TFT_ORANGE);
+    display.setTextColor(g_tuneSteps > 0 ? (uint32_t)TFT_RED :
+                         g_tuneSteps < 0 ? (uint32_t)TFT_SKYBLUE :
+                                           (uint32_t)TFT_ORANGE);
     display.drawString(buf, 120, 72);
     display.setFont(&fonts::FreeSans9pt7b);
     display.setTextColor(TFT_DARKGREY);
-    display.drawString("ADVANCE  deg", 120, 106);
+    if (g_tuneActive) {
+        char tuneBuf[18];
+        snprintf(tuneBuf, sizeof(tuneBuf), "TUNE %+d", g_tuneSteps);
+        display.setTextColor(g_tuneSteps > 0 ? (uint32_t)TFT_RED :
+                             g_tuneSteps < 0 ? (uint32_t)TFT_SKYBLUE :
+                                               (uint32_t)TFT_ORANGE);
+        display.drawString(tuneBuf, 120, 102);
+        display.setFont(&fonts::FreeSans9pt7b);
+        display.setTextColor(TFT_DARKGREY);
+        display.drawString("ADVANCE  deg", 120, 119);
+    } else {
+        display.drawString("ADVANCE  deg", 120, 106);
+    }
 
     snprintf(buf, sizeof(buf), "%d", (int)g_map);
     display.setFont(&fonts::Font4);
     display.setTextColor(TFT_SKYBLUE);
-    display.drawString(buf, 120, 140);
+    display.drawString(buf, 120, g_tuneActive ? 148 : 140);
     display.setFont(&fonts::FreeSans9pt7b);
     display.setTextColor(TFT_DARKGREY);
-    display.drawString("MAP  kPa", 120, 162);
+    display.drawString("MAP  kPa", 120, g_tuneActive ? 170 : 162);
 
     snprintf(buf, sizeof(buf), "%d", (int)g_rpm);
     display.setFont(&fonts::Font6);
     display.setTextColor(TFT_WHITE);
-    display.drawString(buf, 120, 199);
+    display.drawString(buf, 120, g_tuneActive ? 202 : 199);
     display.setFont(&fonts::FreeSans9pt7b);
     display.setTextColor(TFT_DARKGREY);
-    display.drawString("RPM", 120, 221);
+    display.drawString("RPM", 120, 224);
 }
 
 static void drawAux() {
@@ -1161,6 +1310,39 @@ static void drawAux() {
     drawHalf(sprTop, buf, "TEMP  degC", TFT_CYAN, 44);
     snprintf(buf, sizeof(buf), "%.1f", (float)g_vlt);
     drawHalf(sprBot, buf, "VOLT  V", TFT_YELLOW, 140);
+}
+
+static void handleEncoder() {
+    static uint8_t lastState = 0;
+    static bool initialized = false;
+
+    uint8_t state = (digitalRead(ENC_A_PIN) ? 1 : 0) |
+                    (digitalRead(ENC_B_PIN) ? 2 : 0);
+    if (!initialized) {
+        initialized = true;
+        lastState = state;
+        return;
+    }
+    if (state == lastState) return;
+
+    static const int8_t table[16] = {
+        0, -1,  1,  0,
+        1,  0,  0, -1,
+       -1,  0,  0,  1,
+        0,  1, -1,  0
+    };
+    int8_t delta = table[(lastState << 2) | state];
+    lastState = state;
+    if (delta == 0) return;
+
+    g_encoderAccum += delta;
+    if (g_encoderAccum >= 4) {
+        g_encoderAccum = 0;
+        if (g_tuneActive) tuneStep(1);
+    } else if (g_encoderAccum <= -4) {
+        g_encoderAccum = 0;
+        if (g_tuneActive) tuneStep(-1);
+    }
 }
 
 // --- Button: short = view, long = read-only dump ---
@@ -1173,8 +1355,12 @@ static void handleButton() {
     if (btn == LOW && lastBtn == HIGH) { pressTime = millis(); longFired = false; }
     if (btn == LOW && !longFired && millis() - pressTime >= LONG_PRESS_MS) {
         longFired = true;
-        g_readRequested = true;
-        pushLog("Read angefragt");
+        if (g_tuneArmed) {
+            tuneSendToggle();
+        } else {
+            g_readRequested = true;
+            pushLog("Read angefragt");
+        }
     }
     if (btn == HIGH && lastBtn == LOW && !longFired) {
         g_view = !g_view;
@@ -1200,6 +1386,8 @@ void setup() {
     sprBot.createSprite(240, 102);
 
     pinMode(BTN_PIN, INPUT_PULLUP);
+    pinMode(ENC_A_PIN, INPUT_PULLUP);
+    pinMode(ENC_B_PIN, INPUT_PULLUP);
 
     pushLog("Start...");
     setupRtcTime();
@@ -1217,6 +1405,7 @@ void setup() {
 void loop() {
     pollSerialCommands();
     maintainWifi();
+    handleEncoder();
     handleButton();
 
     if (doConnect) { doConnect = false; connectBLE(); }

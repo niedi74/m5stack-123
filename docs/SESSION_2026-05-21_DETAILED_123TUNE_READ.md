@@ -339,14 +339,31 @@ Identified but deliberately deferred live tune commands:
 | `A` | advance up |
 | `R` | retard/down |
 
-These will be added only behind an explicit tune-test mode later.
+Implemented on 2026-05-22 behind an explicit tune-test guard:
+
+- `tune_arm`: enables the guard, no command is sent to the distributor
+- long press on the M5Dial button toggles tune mode by sending `T`
+- while tune mode is active, rotary encoder steps send:
+  - clockwise: `A`
+  - counter-clockwise: `R`
+- `tune_up`, `tune_down`, `tune_zero`, `tune_off`, `tune_disarm` are available
+  over USB serial for controlled tests
+- this does not write the map/EEPROM and is intended only for temporary live
+  offset testing
+- display color indicates the tracked temporary offset:
+  - orange: tracked offset is zero / map baseline
+  - red: positive/advance steps
+  - blue: negative/retard steps
+- the main display additionally shows `TUNE +N` or `TUNE -N` next to the
+  advance value while tune mode is active
+- CSV rows include `tune_active` and `tune_steps` for later analysis
 
 Planned safety model:
 
 1. Read current distributor map completely.
 2. Decode and compare against screenshots.
 3. Save read backup locally.
-4. Add UI/command guard for tune/write actions.
+4. Add UI/command guard for tune/write actions. Done for live tune.
 5. Test live `T/A/R` in standstill first.
 6. Permanent writes only after backup and confirmation.
 
@@ -531,7 +548,7 @@ Firmware now has a first self-contained logging layer:
 - CSV header from the 2026-05-22 logger/time update:
 
 ```csv
-ms;zeit;epoch;rpm;zuendung_grad;map_kpa;temp_c;spannung_v;spule_a;rx
+ms;zeit;epoch;rpm;zuendung_grad;map_kpa;temp_c;spannung_v;spule_a;rx;tune_active;tune_steps
 ```
 
 - rows are written only when RPM is greater than 650 U/min
