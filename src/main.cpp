@@ -67,11 +67,15 @@ static volatile bool     g_conn  = false;
 static volatile uint32_t g_rxCnt = 0;
 static bool              g_view  = false;   // false=ADV/RPM  true=TMP/VLT
 static bool              g_rawlog = false;
+static bool              g_readRequested = false;
+static bool              g_readBusy = false;
 
 static NimBLEClient* pClient   = nullptr;
 static NimBLERemoteCharacteristic* pNusRx = nullptr;
 static NimBLEAddress targetAddr;
 static volatile bool  doConnect = false;
+
+static constexpr bool kReadOnConnect = false;  // live mode stays quiet; long press starts read-only dump
 
 static uint8_t charProps(NimBLERemoteCharacteristic* c) {
     uint8_t props = 0;
@@ -131,6 +135,18 @@ static void decodeFrame(const uint8_t* d, size_t n) {
     }
 }
 
+static void printLiveSummary() {
+    Serial.printf("[%6lums] LIVE rpm=%4d adv=%4.1f map=%3d temp=%3d volt=%4.1f cur=%3.1f rx=%lu\n",
+                  millis(),
+                  (int)g_rpm,
+                  (float)g_adv,
+                  (int)g_map,
+                  (int)g_tmp,
+                  (float)g_vlt,
+                  (float)g_cur,
+                  (unsigned long)g_rxCnt);
+}
+
 // --- NimBLE callbacks ---
 static void startScan();
 
@@ -186,10 +202,12 @@ static void startScan() {
 // Notify handler: receives every notification regardless of characteristic
 static void onAnyNotify(NimBLERemoteCharacteristic* chr,
                         uint8_t* data, size_t len, bool isNotify) {
-    Serial.printf("[%6lums] NTFY handle=%u len=%u :",
-                  millis(), chr->getHandle(), (unsigned)len);
-    for (size_t i = 0; i < len && i < 20; i++) Serial.printf(" %02X", data[i]);
-    Serial.println();
+    if (g_rawlog) {
+        Serial.printf("[%6lums] NTFY handle=%u len=%u :",
+                      millis(), chr->getHandle(), (unsigned)len);
+        for (size_t i = 0; i < len && i < 20; i++) Serial.printf(" %02X", data[i]);
+        Serial.println();
+    }
     decodeFrame(data, len);
 }
 
@@ -217,6 +235,24 @@ static void sendRaytacCommand(const char* command) {
     bool ok = pNusRx->writeValue((uint8_t*)buf, strlen(buf), true);
     Serial.printf("[%6lums] TX cmd '%s\\\\r$' -> %s\n",
                   millis(), command, ok ? "OK" : "FAIL");
+}
+
+static void runReadOnlyDump() {
+    if (!g_conn || !pClient || !pClient->isConnected() || !pNusRx) return;
+
+    g_readBusy = true;
+    pushLog("Read dump...");
+    sendRaytacCommand("v@");
+    delay(500);
+    sendRaytacCommand("10@");
+    delay(500);
+    sendRaytacCommand("11@");
+    delay(500);
+    sendRaytacCommand("12@");
+    delay(500);
+    sendRaytacCommand("13@");
+    g_readBusy = false;
+    pushLog("Read dump OK");
 }
 
 
@@ -297,16 +333,10 @@ static void connectBLE() {
     sendRaytacPing();
     delay(120);
     sendRaytacEnter();
-    delay(250);
-    sendRaytacCommand("v@");
-    delay(500);
-    sendRaytacCommand("10@");
-    delay(500);
-    sendRaytacCommand("11@");
-    delay(500);
-    sendRaytacCommand("12@");
-    delay(500);
-    sendRaytacCommand("13@");
+    if (kReadOnConnect) {
+        delay(250);
+        runReadOnlyDump();
+    }
 }
 
 // --- Display ---
@@ -360,10 +390,32 @@ static void drawHalf(LGFX_Sprite& spr, const char* val, const char* lbl,
 
 static void drawMain() {
     char buf[16];
+    display.fillRect(0, 44, 240, 196, TFT_BLACK);
+    display.setTextDatum(MC_DATUM);
+
     snprintf(buf, sizeof(buf), "%.1f", (float)g_adv);
-    drawHalf(sprTop, buf, "ADVANCE  deg", TFT_ORANGE, 44);
+    display.setFont(&fonts::Font7);
+    display.setTextColor(TFT_ORANGE);
+    display.drawString(buf, 120, 78);
+    display.setFont(&fonts::FreeSans9pt7b);
+    display.setTextColor(TFT_DARKGREY);
+    display.drawString("ADVANCE  deg", 120, 115);
+
+    snprintf(buf, sizeof(buf), "%d", (int)g_map);
+    display.setFont(&fonts::Font4);
+    display.setTextColor(TFT_SKYBLUE);
+    display.drawString(buf, 120, 151);
+    display.setFont(&fonts::FreeSans9pt7b);
+    display.setTextColor(TFT_DARKGREY);
+    display.drawString("MAP  kPa", 120, 174);
+
     snprintf(buf, sizeof(buf), "%d", (int)g_rpm);
-    drawHalf(sprBot, buf, "RPM", TFT_WHITE, 140);
+    display.setFont(&fonts::Font7);
+    display.setTextColor(TFT_WHITE);
+    display.drawString(buf, 120, 205);
+    display.setFont(&fonts::FreeSans9pt7b);
+    display.setTextColor(TFT_DARKGREY);
+    display.drawString("RPM", 120, 229);
 }
 
 static void drawAux() {
@@ -374,7 +426,7 @@ static void drawAux() {
     drawHalf(sprBot, buf, "VOLT  V", TFT_YELLOW, 140);
 }
 
-// --- Button: short = view, long = raw log toggle ---
+// --- Button: short = view, long = read-only dump ---
 static void handleButton() {
     static bool     lastBtn   = HIGH;
     static uint32_t pressTime = 0;
@@ -384,8 +436,8 @@ static void handleButton() {
     if (btn == LOW && lastBtn == HIGH) { pressTime = millis(); longFired = false; }
     if (btn == LOW && !longFired && millis() - pressTime >= LONG_PRESS_MS) {
         longFired = true;
-        g_rawlog  = !g_rawlog;
-        pushLog("RAW-Log: %s", g_rawlog ? "AN" : "AUS");
+        g_readRequested = true;
+        pushLog("Read angefragt");
     }
     if (btn == HIGH && lastBtn == LOW && !longFired) {
         g_view = !g_view;
@@ -424,6 +476,11 @@ void loop() {
 
     if (doConnect) { doConnect = false; connectBLE(); }
 
+    if (g_readRequested && !g_readBusy) {
+        g_readRequested = false;
+        runReadOnlyDump();
+    }
+
     // The original 123\TUNE+ Android app pings BLE devices every 1650 ms.
     static uint32_t lastPing = 0;
     if (g_conn && millis() - lastPing >= 1650) {
@@ -438,6 +495,12 @@ void loop() {
         Serial.printf("[%6lums] HB conn=%d rx=%lu\n",
                       millis(), pClient && pClient->isConnected() ? 1 : 0,
                       (unsigned long)g_rxCnt);
+    }
+
+    static uint32_t lastLive = 0;
+    if (g_conn && g_rxCnt > 0 && millis() - lastLive >= 500) {
+        lastLive = millis();
+        printLiveSummary();
     }
 
     drawStatus();

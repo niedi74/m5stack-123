@@ -455,3 +455,64 @@ CAN-distributed display/logger/control data
 4. Compare decoded curves against the phone screenshots above.
 5. Add `I@` read test.
 6. Keep firmware read-only until decoded curves match the app 1:1.
+
+## Update 2026-05-22 - live mode and road-test logging
+
+Morning motor-running test confirmed that all live values update over NUS:
+
+```text
+RPM
+Advance
+MAP / pressure
+temperature
+voltage
+coil current
+```
+
+The pasted monitor log showed many successful pings. The `TX ping '$' -> FAIL`
+events happened at the same time as `Disc reason=520`, so they are currently
+treated as symptoms of a disconnect/reconnect, not as proof that the 1650 ms
+ping itself is wrong.
+
+Firmware change in `src/main.cpp`:
+
+- default connect path is now live-only
+- after subscribe it sends only `$` and `\r`
+- automatic `v@`, `10@`, `11@`, `12@`, `13@` reads are disabled by
+  `kReadOnConnect = false`
+- long button press triggers the read-only dump manually
+- normal notify hex logging is quiet by default
+- serial output prints a compact live line every 500 ms:
+
+```text
+LIVE rpm=1000 adv=13.4 map=100 temp= 19 volt=13.7 cur=3.3 rx=1234
+```
+
+This format is intended for the next long-running driving/logging test because
+it is much easier to store and compare than the raw 5-byte notification dump.
+
+Display change:
+
+- main page now shows `ADVANCE deg`, `MAP kPa`, and `RPM`
+- short press still switches to the temperature/voltage page
+- long press starts the read-only `v@` and `10@..13@` dump
+
+Important next test:
+
+1. Flash this live-mode build.
+2. Start monitor with:
+
+```powershell
+pio device monitor --port COM4 --baud 115200
+```
+
+3. Start the engine and let it idle for several minutes.
+4. Verify that live lines continue without frequent `Disc reason=520`.
+5. For a road test, log the monitor output to a file from PowerShell, e.g.:
+
+```powershell
+pio device monitor --port COM4 --baud 115200 | Tee-Object -FilePath D:\_claude\M5stack\logs\drive-test-2026-05-22.txt
+```
+
+Do not use permanent write/tune functions during the first driving log. Keep
+this run read-only.
