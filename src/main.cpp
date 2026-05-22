@@ -489,14 +489,27 @@ static void handleRoot() {
     String mode = WiFi.status() == WL_CONNECTED ? "Home WiFi" : "Setup AP";
     String timeText = localTimestamp();
     String html;
-    html.reserve(2200);
+    html.reserve(6200);
     html += "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>";
     html += "<title>M5Dial 123Tune</title><style>";
     html += "body{font-family:system-ui,Segoe UI,Arial;margin:24px;background:#111;color:#eee}";
     html += "a,button{display:inline-block;margin:6px 8px 6px 0;padding:10px 12px;background:#e94b1b;color:white;text-decoration:none;border:0;border-radius:4px}";
     html += "input{display:block;margin:6px 0 12px;padding:10px;width:min(360px,90vw)}";
     html += ".muted{color:#aaa}.box{border:1px solid #333;padding:14px;margin:14px 0;max-width:560px}";
-    html += "</style></head><body><h2>M5Dial 123Tune Logger</h2>";
+    html += ".dial{width:min(82vw,320px);aspect-ratio:1;border-radius:50%;background:#050505;margin:4px 0 18px;position:relative;border:10px solid #242424;box-shadow:inset 0 0 38px #1d2830,0 0 16px #000;color:#ddd;overflow:hidden}";
+    html += ".top{position:absolute;top:28px;left:0;right:0;font-size:14px;font-weight:700}.ble{position:absolute;left:72px;color:#2577ff}.ign{position:absolute;left:72px;top:16px;color:#e93b2f}.mode{position:absolute;right:72px;color:#3e75ff}";
+    html += ".adv{position:absolute;top:76px;left:0;right:0;text-align:center;font-size:58px;line-height:1;font-weight:800;color:#f39c12}.lbl{font-size:14px;color:#ccc;font-weight:700;letter-spacing:0}.tunelbl{position:absolute;top:135px;left:0;right:0;text-align:center;font-size:16px;font-weight:800;color:#f39c12}";
+    html += ".map{position:absolute;top:162px;left:0;right:0;text-align:center;font-size:28px;font-weight:800;color:#46b9ff}.maplbl{position:absolute;top:193px;left:0;right:0;text-align:center;color:#888;font-size:14px;font-weight:700}";
+    html += ".rpm{position:absolute;bottom:30px;left:0;right:0;text-align:center;font-size:44px;font-weight:800;color:#fff}.rpmlbl{position:absolute;bottom:14px;left:0;right:0;text-align:center;color:#888;font-size:14px;font-weight:700}";
+    html += ".red{color:#ff3838}.blue{color:#3aa0ff}.orange{color:#f39c12}";
+    html += "</style></head><body><h2>M5Dial 123Tune</h2>";
+    html += "<div class='dial'>";
+    html += "<div class='top'><span id='ble' class='ble'>BLE</span><span id='ign' class='ign'>IGN #0</span><span id='mode' class='mode'>ADV</span></div>";
+    html += "<div id='adv' class='adv orange'>0.0</div>";
+    html += "<div id='tunelbl' class='tunelbl orange'>ADVANCE&nbsp; deg</div>";
+    html += "<div id='map' class='map'>0</div><div class='maplbl'>MAP&nbsp; kPa</div>";
+    html += "<div id='rpm' class='rpm'>0</div><div class='rpmlbl'>RPM</div>";
+    html += "</div>";
     html += "<div class='box'><div>Mode: " + mode + "</div><div>IP: " + ip + "</div>";
     html += "<div>Time: " + timeText + " (" + String(g_timeValid ? g_timeSource : "boot") + ")</div>";
     html += "<div>GW: " + WiFi.gatewayIP().toString() + " / DNS: " + WiFi.dnsIP().toString() + "</div>";
@@ -516,8 +529,36 @@ static void handleRoot() {
     html += "<a href='/wps'>Start WPS</a>";
     html += "<p class='muted'>WPS: first click Start WPS here, then press Connect/WPS on the FRITZ!Box.</p>";
     html += "<p class='muted'>If no home WiFi is saved, connect to AP M5Dial-123-Setup and open 192.168.4.1.</p></div>";
+    html += "<script>";
+    html += "function c(s){return s>0?'red':s<0?'blue':'orange'}";
+    html += "async function upd(){try{let r=await fetch('/state',{cache:'no-store'});let d=await r.json();";
+    html += "ble.textContent=d.ble?'BLE OK':'Suche...';ble.style.color=d.ble?'#1ec85a':'#e33';";
+    html += "ign.textContent='IGN #'+d.rx;mode.textContent=d.tune_active?('T'+(d.tune_steps>=0?'+':'')+d.tune_steps):(d.view?'T/V':'ADV');";
+    html += "adv.textContent=Number(d.adv).toFixed(1);adv.className='adv '+c(d.tune_steps);";
+    html += "tunelbl.textContent=d.tune_active?('TUNE '+(d.tune_steps>=0?'+':'')+d.tune_steps):'ADVANCE  deg';tunelbl.className='tunelbl '+c(d.tune_steps);";
+    html += "map.textContent=d.map;rpm.textContent=d.rpm;}catch(e){}}";
+    html += "upd();setInterval(upd,2000);</script>";
     html += "</body></html>";
     web.send(200, "text/html", html);
+}
+
+static void handleState() {
+    String json;
+    json.reserve(260);
+    json += "{";
+    json += "\"ble\":" + String(g_conn ? "true" : "false") + ",";
+    json += "\"view\":" + String(g_view ? "true" : "false") + ",";
+    json += "\"rx\":" + String((unsigned long)g_rxCnt) + ",";
+    json += "\"rpm\":" + String((int)g_rpm) + ",";
+    json += "\"adv\":" + String((float)g_adv, 1) + ",";
+    json += "\"map\":" + String((int)g_map) + ",";
+    json += "\"temp\":" + String((int)g_tmp) + ",";
+    json += "\"volt\":" + String((float)g_vlt, 1) + ",";
+    json += "\"tune_armed\":" + String(g_tuneArmed ? "true" : "false") + ",";
+    json += "\"tune_active\":" + String(g_tuneActive ? "true" : "false") + ",";
+    json += "\"tune_steps\":" + String(g_tuneSteps);
+    json += "}";
+    web.send(200, "application/json", json);
 }
 
 static void handleTimeSet() {
@@ -600,6 +641,7 @@ static void handleWpsStart() {
 
 static void setupWebGui() {
     web.on("/", HTTP_GET, handleRoot);
+    web.on("/state", HTTP_GET, handleState);
     web.on("/time_set", HTTP_GET, handleTimeSet);
     web.on("/wifi", HTTP_GET, handleWifiSave);
     web.on("/wps", HTTP_GET, handleWpsStart);
