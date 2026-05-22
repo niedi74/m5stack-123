@@ -1,0 +1,979 @@
+--- Terminal on COM4 | 115200 8-N-1
+--- Available filters and text transformations: debug, default, direct, hexlify, log2file, nocontrol, printable, send_on_enter, time
+--- More details at https://bit.ly/pio-monitor-filters
+--- Quit: Ctrl+C | Menu: Ctrl+T | Help: Ctrl+T followed by Ctrl+H
+123TUNE+ boot 3 ===
+
+=== M5Dial 123TUNE+ boot 4 ===
+
+=== M5Dial 123TUNE+ boot 5 ===
+[  2725ms] Start...
+[  2728ms] RTC: OK
+[  2730ms] RTC Zeit 2026-05-22 18:49:45
+[  2840ms] SPIFFS: OK
+[  2944ms] WiFi connect...
+[  2962ms] Scan...
+[ 10094ms] WiFi retry...
+[ 20228ms] WiFi retry...
+[ 25061ms] Gefunden!
+[ 25094ms] Verbinde...
+[ 25989ms] Verbunden!
+[ 25990ms] Conn: itvl=40.0ms lat=0 to=4000ms mtu=23 enc=0 auth=0 bond=0
+[ 25991ms] PostConnect: itvl=40.0ms lat=0 to=4000ms mtu=23 enc=0 auth=0 bond=0
+[ 27109ms] === Services: 6 ===
+[ 27110ms] SVC 0x1800
+[ 27509ms]   CHR 0x2a00 h=3 prop=0A N=0 I=0 R=1 W=1
+[ 27510ms]   CHR 0x2a01 h=5 prop=02 N=0 I=0 R=1 W=0
+[ 27510ms]   CHR 0x2a04 h=7 prop=02 N=0 I=0 R=1 W=0
+[ 27510ms]   CHR 0x2aa6 h=9 prop=02 N=0 I=0 R=1 W=0
+[ 27510ms] SVC 0x1801
+[ 27588ms] SVC 6e400001-b5a3-f393-e0a9-e50e24dcca9e
+[ 27949ms]   CHR 6e400002-b5a3-f393-e0a9-e50e24dcca9e h=13 prop=0C N=0 I=0 R=0 W=1
+[ 27950ms]   CHR 6e400003-b5a3-f393-e0a9-e50e24dcca9e h=15 prop=10 N=1 I=0 R=0 W=0
+[ 27950ms] SVC 0x1804
+[ 28149ms]   CHR 0x2a07 h=19 prop=02 N=0 I=0 R=1 W=0
+[ 28150ms] SVC 0x180a
+[ 28349ms]   CHR 0x2a29 h=22 prop=02 N=0 I=0 R=1 W=0
+[ 28350ms]   CHR 0x2a25 h=24 prop=02 N=0 I=0 R=1 W=0
+[ 28350ms]   CHR 0x2a26 h=26 prop=02 N=0 I=0 R=1 W=0
+[ 28350ms] SVC 0x180f
+[ 28669ms]   CHR 0x2a19 h=29 prop=12 N=1 I=0 R=1 W=0
+[ 28670ms] NUS TX h=15 prop=10 N=1 I=0
+[ 28670ms] NUS RX h=13 prop=0C W=1 WNR=1
+[ 29059ms] NUS CCCD off -> OK
+[ 29149ms] sub NUS TX -> OK
+[ 29269ms] NUS CCCD read len=2 : 01 00
+[ 29270ms] Sub NUS: OK
+[ 29389ms] TX ping '$' -> OK
+[ 29629ms] TX enter CR -> OK
+[ 29748ms] TX ping '$' -> OK
+[ 29749ms] LIVE rpm=1100 adv=12.0 map=100 temp=  0 volt=12.3 cur=0.0 rx=4
+[ 30283ms] LIVE rpm=1000 adv=12.0 map=100 temp=  0 volt=12.3 cur=0.0 rx=8
+[ 30822ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=12.3 cur=0.0 rx=12
+[ 31469ms] TX ping '$' -> OK
+[ 31469ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=12.3 cur=0.0 rx=17
+[ 32002ms] LIVE rpm=1000 adv=12.0 map=100 temp= 65 volt=12.3 cur=2.8 rx=20
+[ 32524ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=12.6 cur=2.8 rx=25
+[ 33148ms] TX ping '$' -> OK
+[ 33149ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=12.6 cur=2.8 rx=30
+[ 33679ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=12.6 cur=2.8 rx=33
+[ 34221ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=12.6 cur=2.8 rx=37
+[ 34868ms] TX ping '$' -> OK
+[ 34869ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=12.6 cur=2.9 rx=42
+[ 35163ms] WiFi retry...
+[ 35396ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=12.8 cur=2.9 rx=46
+[ 35930ms] LIVE rpm=1000 adv=12.0 map=100 temp= 65 volt=12.8 cur=2.9 rx=50
+[ 36549ms] TX ping '$' -> OK
+[ 36550ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=12.8 cur=2.9 rx=55
+[ 37083ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=12.8 cur=2.9 rx=58
+[ 37602ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=12.8 cur=2.9 rx=62
+[ 38228ms] TX ping '$' -> OK
+[ 38229ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=12.8 cur=2.9 rx=67
+[ 38761ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=12.8 cur=2.9 rx=71
+[ 39297ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=12.8 cur=2.9 rx=74
+[ 39988ms] TX ping '$' -> OK
+[ 39989ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=12.8 cur=3.0 rx=80
+[ 40518ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.0 cur=3.0 rx=83
+[ 41051ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.0 cur=3.0 rx=87
+[ 41628ms] TX ping '$' -> OK
+[ 41629ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.0 cur=3.0 rx=92
+[ 42205ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.0 cur=3.0 rx=96
+[ 42730ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.0 cur=3.1 rx=100
+[ 43348ms] TX ping '$' -> OK
+[ 43349ms] LIVE rpm=1650 adv=22.4 map=100 temp= 65 volt=13.7 cur=3.1 rx=107
+[ 43880ms] LIVE rpm=1300 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=113
+[ 44402ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=117
+[ 45068ms] TX ping '$' -> OK
+[ 45069ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=122
+[ 45254ms] WiFi retry...
+[ 45608ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=126
+[ 46142ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=130
+[ 46708ms] TX ping '$' -> OK
+[ 46709ms] LIVE rpm= 950 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=135
+[ 47237ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=139
+[ 47773ms] LIVE rpm=1050 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=143
+[ 48305ms] LIVE rpm= 950 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=147
+[ 48588ms] TX ping '$' -> OK
+[ 48822ms] LIVE rpm= 950 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=151
+[ 49345ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=155
+[ 49875ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=159
+[ 50268ms] TX ping '$' -> OK
+[ 50387ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=163
+[ 50920ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=167
+[ 51438ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=171
+[ 51948ms] TX ping '$' -> OK
+[ 51949ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=174
+[ 52478ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=178
+[ 53011ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.7 cur=2.9 rx=181
+[ 53629ms] TX ping '$' -> OK
+[ 53630ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.0 cur=2.9 rx=186
+[ 54155ms] LIVE rpm= 950 adv=12.0 map=100 temp= 66 volt=13.0 cur=2.9 rx=189
+[ 54688ms] LIVE rpm=1150 adv=12.0 map= 72 temp= 66 volt=13.0 cur=2.9 rx=195
+[ 55309ms] TX ping '$' -> OK
+[ 55309ms] LIVE rpm=1200 adv=12.0 map=100 temp= 66 volt=13.0 cur=3.0 rx=199
+[ 55603ms] WiFi retry...
+[ 55837ms] LIVE rpm= 800 adv=12.0 map=100 temp= 66 volt=13.0 cur=3.0 rx=202
+[ 56363ms] LIVE rpm= 800 adv=12.0 map=100 temp= 66 volt=12.6 cur=3.0 rx=205
+[ 56949ms] TX ping '$' -> OK
+[ 56949ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=12.6 cur=3.0 rx=209
+[ 57480ms] LIVE rpm= 800 adv=12.0 map=100 temp= 66 volt=12.6 cur=3.0 rx=212
+[ 58015ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=12.6 cur=3.0 rx=216
+[ 58535ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=12.6 cur=3.0 rx=219
+[ 58829ms] TX ping '$' -> OK
+[ 59062ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=12.6 cur=3.0 rx=222
+[ 59595ms] LIVE rpm= 800 adv=12.0 map=100 temp= 66 volt=13.0 cur=3.0 rx=225
+[ 60115ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.0 cur=3.0 rx=228
+[ 60469ms] TX ping '$' -> OK
+[ 60702ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.0 cur=3.0 rx=232
+[ 61234ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.0 cur=3.0 rx=235
+[ 61766ms] LIVE rpm= 800 adv=12.0 map=100 temp= 66 volt=13.0 cur=2.9 rx=239
+[ 62188ms] TX ping '$' -> OK
+[ 62306ms] LIVE rpm= 800 adv=12.0 map=100 temp= 66 volt=13.0 cur=2.9 rx=242
+[ 62833ms] LIVE rpm= 800 adv=12.0 map=100 temp= 66 volt=12.6 cur=2.9 rx=245
+[ 63357ms] LIVE rpm= 800 adv=12.0 map=100 temp= 66 volt=12.6 cur=2.9 rx=249
+[ 63869ms] TX ping '$' -> OK
+[ 63869ms] LIVE rpm= 800 adv=12.0 map=100 temp= 66 volt=12.6 cur=2.9 rx=252
+[ 64402ms] LIVE rpm= 800 adv=12.0 map=100 temp= 66 volt=12.6 cur=2.9 rx=255
+[ 64926ms] LIVE rpm= 750 adv=12.0 map=100 temp= 66 volt=12.6 cur=2.9 rx=258
+[ 65588ms] TX ping '$' -> OK
+[ 65589ms] LIVE rpm= 800 adv=12.0 map=100 temp= 66 volt=13.2 cur=2.9 rx=263
+[ 65775ms] WiFi retry...
+[ 66126ms] LIVE rpm= 950 adv=12.0 map=100 temp= 66 volt=13.2 cur=2.9 rx=266
+[ 66654ms] LIVE rpm= 800 adv=12.0 map=100 temp= 66 volt=13.2 cur=2.9 rx=269
+[ 67309ms] TX ping '$' -> OK
+[ 67310ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.2 cur=2.9 rx=274
+[ 67834ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.2 cur=2.9 rx=277
+[ 68365ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=13.2 cur=3.1 rx=280
+[ 68989ms] TX ping '$' -> OK
+[ 68989ms] LIVE rpm= 800 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=284
+[ 69530ms] LIVE rpm= 800 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=287
+[ 70054ms] LIVE rpm=1550 adv=12.0 map= 83 temp= 66 volt=14.1 cur=3.1 rx=292
+[ 70628ms] TX ping '$' -> OK
+[ 70629ms] LIVE rpm=1200 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=298
+[ 71161ms] LIVE rpm= 950 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.4 rx=302
+[ 71693ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=305
+[ 72212ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=309
+[ 72508ms] TX ping '$' -> OK
+[ 72742ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=312
+[ 73273ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=316
+[ 73804ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=319
+[ 74228ms] TX ping '$' -> OK
+[ 74345ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=323
+[ 74867ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=326
+[ 75398ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=330
+[ 75815ms] WiFi retry...
+[ 75909ms] TX ping '$' -> OK
+[ 75909ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=333
+[ 76431ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=337
+[ 76954ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.4 rx=341
+[ 77589ms] TX ping '$' -> OK
+[ 77590ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=345
+[ 78123ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=348
+[ 78656ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=353
+[ 79231ms] TX ping '$' -> OK
+[ 79233ms] LIVE rpm= 950 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=357
+[ 79765ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=360
+[ 80302ms] LIVE rpm= 950 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.4 rx=365
+[ 80820ms] LIVE rpm= 950 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.4 rx=369
+[ 81108ms] TX ping '$' -> OK
+[ 81342ms] LIVE rpm=1050 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.4 rx=373
+[ 81877ms] LIVE rpm=1250 adv=12.0 map= 68 temp= 66 volt=14.1 cur=3.1 rx=379
+[ 82412ms] LIVE rpm=1900 adv=26.4 map= 68 temp= 66 volt=13.9 cur=3.1 rx=386
+[ 82828ms] TX ping '$' -> OK
+[ 82945ms] LIVE rpm=1350 adv=22.6 map=100 temp= 66 volt=13.9 cur=3.1 rx=392
+[ 83471ms] LIVE rpm=1100 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=397
+[ 83996ms] LIVE rpm=1050 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=402
+[ 84508ms] TX ping '$' -> OK
+[ 84509ms] LIVE rpm=1050 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=406
+[ 85047ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=410
+[ 85567ms] LIVE rpm=1050 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=415
+[ 85861ms] WiFi retry...
+[ 86230ms] TX ping '$' -> OK
+[ 86230ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.4 rx=420
+[ 86764ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=424
+[ 87300ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=428
+[ 87948ms] TX ping '$' -> OK
+[ 87950ms] LIVE rpm=1150 adv=12.0 map= 78 temp= 66 volt=13.9 cur=3.4 rx=434
+[ 88471ms] LIVE rpm=1200 adv=12.0 map= 68 temp= 66 volt=13.9 cur=3.0 rx=439
+[ 89006ms] LIVE rpm=1800 adv=12.0 map= 86 temp= 66 volt=13.9 cur=3.0 rx=446
+[ 89668ms] TX ping '$' -> OK
+[ 89669ms] LIVE rpm=1950 adv=22.4 map= 76 temp= 66 volt=13.9 cur=3.0 rx=457
+[ 90204ms] LIVE rpm=1350 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=463
+[ 90776ms] LIVE rpm=1100 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=468
+[ 91388ms] TX ping '$' -> OK
+[ 91389ms] LIVE rpm=1100 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=474
+[ 91924ms] LIVE rpm=1050 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=478
+[ 92457ms] LIVE rpm=1050 adv=12.0 map= 68 temp= 66 volt=14.1 cur=3.1 rx=483
+[ 93108ms] TX ping '$' -> OK
+[ 93109ms] LIVE rpm=1250 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=490
+[ 93634ms] LIVE rpm=1150 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=495
+[ 94165ms] LIVE rpm=1100 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=499
+[ 94789ms] TX ping '$' -> OK
+[ 94789ms] LIVE rpm=1050 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=504
+[ 95316ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=509
+[ 95840ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=513
+[ 96026ms] WiFi retry...
+[ 96428ms] TX ping '$' -> OK
+[ 96429ms] LIVE rpm=1150 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=519
+[ 96962ms] LIVE rpm=1200 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=523
+[ 97483ms] LIVE rpm=1050 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=528
+[ 98007ms] LIVE rpm=1050 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=532
+[ 98348ms] TX ping '$' -> OK
+[ 98581ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=536
+[ 99115ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=541
+[ 99692ms] LIVE rpm=1050 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=546
+[ 99989ms] TX ping '$' -> OK
+[100223ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=549
+[100757ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=554
+[101289ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=557
+[101789ms] TX ping '$' -> OK
+[101790ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=561
+[102313ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=564
+[102845ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=567
+[103509ms] TX ping '$' -> OK
+[103510ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=572
+[104043ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=575
+[104571ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=578
+[105229ms] TX ping '$' -> OK
+[105230ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=583
+[105765ms] LIVE rpm=1200 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=588
+[106068ms] WiFi retry...
+[106302ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=592
+[106948ms] TX ping '$' -> OK
+[106949ms] LIVE rpm= 950 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=597
+[107471ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.4 rx=601
+[108008ms] LIVE rpm=1500 adv=23.0 map= 81 temp= 66 volt=13.9 cur=3.4 rx=607
+[108629ms] TX ping '$' -> OK
+[108630ms] LIVE rpm=1500 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=614
+[109159ms] LIVE rpm=1000 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.4 rx=618
+[109692ms] LIVE rpm= 950 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=622
+[110308ms] TX ping '$' -> OK
+[110309ms] LIVE rpm= 950 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=626
+[110839ms] LIVE rpm= 950 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=630
+[111362ms] LIVE rpm= 950 adv=12.0 map= 84 temp= 66 volt=13.9 cur=3.1 rx=634
+[111989ms] TX ping '$' -> OK
+[111990ms] LIVE rpm=1750 adv=23.0 map= 84 temp= 66 volt=13.9 cur=3.1 rx=641
+[112524ms] LIVE rpm=1950 adv=23.6 map= 84 temp= 66 volt=13.9 cur=3.1 rx=648
+[113059ms] LIVE rpm=2000 adv=23.8 map= 83 temp= 66 volt=13.9 cur=3.1 rx=658
+[113709ms] TX ping '$' -> OK
+[113710ms] LIVE rpm=2100 adv=24.4 map= 81 temp= 66 volt=13.9 cur=3.1 rx=669
+[114234ms] LIVE rpm=2150 adv=24.4 map= 81 temp= 66 volt=13.9 cur=3.1 rx=678
+[114759ms] LIVE rpm=2250 adv=24.6 map= 81 temp= 66 volt=13.7 cur=3.1 rx=686
+[115429ms] TX ping '$' -> OK
+[115430ms] LIVE rpm=2400 adv=25.4 map= 78 temp= 66 volt=13.7 cur=3.1 rx=701
+[115964ms] LIVE rpm=2500 adv=25.8 map= 76 temp= 66 volt=13.9 cur=3.1 rx=711
+[116310ms] WiFi retry...
+E (125016) wifi:sta is connecting, return error
+[116555ms] LIVE rpm=2200 adv=24.0 map= 84 temp= 66 volt=13.7 cur=3.1 rx=723
+[117028ms] TX ping '$' -> OK
+[117148ms] LIVE rpm=2200 adv=24.0 map= 84 temp= 66 volt=13.7 cur=3.1 rx=733
+[117681ms] LIVE rpm=2200 adv=24.2 map= 83 temp= 66 volt=13.9 cur=3.1 rx=743
+[118219ms] LIVE rpm=2250 adv=24.6 map= 81 temp= 66 volt=13.9 cur=3.1 rx=753
+[118789ms] TX ping '$' -> OK
+[118790ms] LIVE rpm=2250 adv=24.6 map= 81 temp= 66 volt=13.7 cur=3.1 rx=764
+[119314ms] LIVE rpm=2250 adv=25.0 map= 76 temp= 66 volt=13.7 cur=3.1 rx=772
+[119846ms] LIVE rpm=1750 adv=23.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=781
+[120469ms] TX ping '$' -> OK
+[120470ms] LIVE rpm=1750 adv=22.6 map=100 temp= 66 volt=13.9 cur=3.1 rx=790
+[120991ms] LIVE rpm=1700 adv=22.4 map=100 temp= 66 volt=13.9 cur=3.1 rx=797
+[121515ms] LIVE rpm=1700 adv=22.2 map=100 temp= 66 volt=14.1 cur=3.1 rx=804
+[122108ms] TX ping '$' -> OK
+[122109ms] LIVE rpm=1600 adv=22.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=812
+[122644ms] LIVE rpm=1600 adv=22.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=819
+[123164ms] LIVE rpm=1500 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=825
+[123688ms] LIVE rpm=1400 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=832
+[123988ms] TX ping '$' -> OK
+[124222ms] LIVE rpm=1450 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=838
+[124753ms] LIVE rpm=1900 adv=24.2 map= 65 temp= 66 volt=14.1 cur=3.1 rx=845
+[125287ms] LIVE rpm=2150 adv=23.8 map= 84 temp= 66 volt=14.1 cur=3.1 rx=855
+[125709ms] TX ping '$' -> OK
+[125827ms] LIVE rpm=2400 adv=24.0 map= 86 temp= 66 volt=13.9 cur=3.1 rx=864
+[126348ms] LIVE rpm=2050 adv=23.4 map= 91 temp= 66 volt=13.9 cur=3.1 rx=873
+[126534ms] WiFi retry...
+E (135238) wifi:sta is connecting, return error
+[126893ms] LIVE rpm=2700 adv=24.4 map= 91 temp= 66 volt=13.9 cur=3.1 rx=884
+[127389ms] TX ping '$' -> OK
+[127506ms] LIVE rpm=2800 adv=24.6 map= 91 temp= 66 volt=13.9 cur=3.1 rx=899
+[128080ms] LIVE rpm=2850 adv=24.8 map= 91 temp= 66 volt=13.9 cur=3.1 rx=912
+[128603ms] LIVE rpm=2000 adv=23.2 map=100 temp= 66 volt=13.9 cur=3.1 rx=921
+[129108ms] TX ping '$' -> OK
+[129109ms] LIVE rpm=2050 adv=23.2 map=100 temp= 66 volt=13.9 cur=3.1 rx=930
+[129644ms] LIVE rpm=2050 adv=23.2 map=100 temp= 66 volt=13.9 cur=3.1 rx=939
+[130174ms] LIVE rpm=2000 adv=23.2 map=100 temp= 66 volt=13.9 cur=3.1 rx=947
+[130828ms] TX ping '$' -> OK
+[130829ms] LIVE rpm=2000 adv=23.2 map=100 temp= 66 volt=13.9 cur=3.1 rx=957
+[131366ms] LIVE rpm=1950 adv=23.2 map=100 temp= 66 volt=13.9 cur=3.1 rx=967
+[131902ms] LIVE rpm=1900 adv=23.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=975
+[132548ms] TX ping '$' -> OK
+[132549ms] LIVE rpm=1850 adv=23.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=985
+[133074ms] LIVE rpm=1700 adv=22.2 map=100 temp= 66 volt=13.9 cur=3.1 rx=993
+[133609ms] LIVE rpm=1650 adv=22.2 map=100 temp= 66 volt=13.9 cur=3.1 rx=999
+[134228ms] TX ping '$' -> OK
+[134229ms] LIVE rpm=1500 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=1007
+[134762ms] LIVE rpm=1300 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=1013
+[135291ms] LIVE rpm=1150 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=1018
+[135948ms] TX ping '$' -> OK
+[135949ms] LIVE rpm=1100 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=1024
+[136479ms] LIVE rpm=1100 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=1028
+[136775ms] WiFi retry...
+[137009ms] LIVE rpm=1100 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=1032
+[137628ms] TX ping '$' -> OK
+[137629ms] LIVE rpm= 950 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=1037
+[138160ms] LIVE rpm= 950 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=1041
+[138694ms] LIVE rpm=1050 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=1045
+[139349ms] TX ping '$' -> OK
+[139349ms] LIVE rpm= 950 adv=12.0 map=100 temp= 66 volt=14.1 cur=3.1 rx=1050
+[139875ms] LIVE rpm= 950 adv=22.2 map=100 temp= 66 volt=14.1 cur=3.1 rx=1055
+[140405ms] LIVE rpm=1500 adv=23.2 map= 88 temp= 66 volt=14.1 cur=3.0 rx=1061
+[141108ms] TX ping '$' -> OK
+[141109ms] LIVE rpm=1850 adv=12.0 map= 84 temp= 66 volt=14.1 cur=3.0 rx=1068
+[141646ms] LIVE rpm=2300 adv=23.6 map= 86 temp= 66 volt=14.1 cur=3.1 rx=1080
+[142174ms] LIVE rpm=2350 adv=23.8 map= 86 temp= 66 volt=13.9 cur=3.1 rx=1090
+[142788ms] TX ping '$' -> OK
+[142789ms] LIVE rpm=2500 adv=24.4 map= 84 temp= 66 volt=13.9 cur=3.1 rx=1103
+[143322ms] LIVE rpm=2600 adv=24.8 map= 84 temp= 66 volt=13.9 cur=3.1 rx=1114
+[143856ms] LIVE rpm=2750 adv=25.0 map= 84 temp= 66 volt=13.9 cur=3.1 rx=1126
+[144468ms] TX ping '$' -> OK
+[144469ms] LIVE rpm=2350 adv=24.0 map= 84 temp= 66 volt=13.9 cur=3.1 rx=1137
+[144992ms] LIVE rpm=2350 adv=24.0 map= 84 temp= 66 volt=13.9 cur=3.1 rx=1149
+[145527ms] LIVE rpm=2400 adv=24.2 map= 84 temp= 66 volt=13.9 cur=3.1 rx=1159
+[146189ms] TX ping '$' -> OK
+[146190ms] LIVE rpm=2400 adv=24.2 map= 84 temp= 66 volt=13.9 cur=3.1 rx=1172
+[146713ms] LIVE rpm=2450 adv=24.4 map= 83 temp= 66 volt=13.9 cur=3.1 rx=1182
+[147004ms] WiFi retry...
+[147239ms] LIVE rpm=2450 adv=24.6 map= 83 temp= 66 volt=13.9 cur=3.1 rx=1193
+[147868ms] TX ping '$' -> OK
+[147869ms] LIVE rpm=2500 adv=25.0 map= 81 temp= 66 volt=13.9 cur=3.1 rx=1204
+[148402ms] LIVE rpm=2450 adv=26.0 map= 68 temp= 66 volt=13.9 cur=3.1 rx=1216
+[148940ms] LIVE rpm=2300 adv=23.6 map=100 temp= 66 volt=13.7 cur=3.1 rx=1226
+[149509ms] TX ping '$' -> OK
+[149510ms] LIVE rpm=2150 adv=23.4 map=100 temp= 66 volt=13.7 cur=3.1 rx=1237
+[150031ms] LIVE rpm=2050 adv=23.2 map=100 temp= 66 volt=13.7 cur=3.1 rx=1245
+[150566ms] LIVE rpm=2050 adv=23.2 map=100 temp= 66 volt=13.7 cur=3.1 rx=1254
+[151105ms] LIVE rpm=2000 adv=23.2 map=100 temp= 66 volt=13.9 cur=3.1 rx=1263
+[151548ms] TX ping '$' -> OK
+[151665ms] LIVE rpm=1950 adv=23.2 map=100 temp= 66 volt=13.9 cur=3.1 rx=1272
+[152190ms] LIVE rpm=1950 adv=23.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=1281
+[152724ms] LIVE rpm=1900 adv=23.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=1288
+[153228ms] TX ping '$' -> OK
+[153229ms] LIVE rpm=1800 adv=23.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=1296
+[153809ms] LIVE rpm=1800 adv=22.6 map=100 temp= 66 volt=13.9 cur=3.1 rx=1305
+[154344ms] LIVE rpm=1700 adv=22.6 map=100 temp= 66 volt=13.9 cur=3.1 rx=1312
+[154989ms] TX ping '$' -> OK
+[154990ms] LIVE rpm=1650 adv=22.2 map=100 temp= 66 volt=13.9 cur=3.1 rx=1320
+[155526ms] LIVE rpm=1450 adv=17.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=1328
+[156057ms] LIVE rpm=1450 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=1333
+[156708ms] TX ping '$' -> OK
+[156709ms] LIVE rpm=1350 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=1341
+[157129ms] WiFi retry...
+[157247ms] LIVE rpm=1250 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=1346
+[157779ms] LIVE rpm=1150 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=1351
+[158389ms] TX ping '$' -> OK
+[158390ms] LIVE rpm= 950 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.1 rx=1356
+[158912ms] LIVE rpm= 950 adv=12.0 map=100 temp= 66 volt=13.7 cur=3.0 rx=1359
+[159444ms] LIVE rpm= 950 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.0 rx=1363
+[160028ms] TX ping '$' -> OK
+[160029ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.0 rx=1367
+[160559ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.0 rx=1371
+[161138ms] LIVE rpm= 850 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.0 rx=1374
+[161708ms] TX ping '$' -> OK
+[161709ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.0 rx=1379
+[162242ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.0 rx=1382
+[162773ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.0 rx=1386
+[163428ms] TX ping '$' -> OK
+[163429ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.0 rx=1390
+[163950ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.0 rx=1394
+[164494ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.0 rx=1398
+[165108ms] TX ping '$' -> OK
+[165109ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=1402
+[165642ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=1406
+[166164ms] LIVE rpm= 900 adv=12.0 map=100 temp= 66 volt=13.9 cur=3.1 rx=1409
+[166788ms] TX ping '$' -> OK
+[166789ms] LIVE rpm=1550 adv=12.0 map= 75 temp= 66 volt=13.9 cur=3.1 rx=1417
+[167209ms] WiFi retry...
+[167327ms] LIVE rpm=1950 adv=23.4 map= 84 temp= 66 volt=13.7 cur=3.0 rx=1424
+[167852ms] LIVE rpm=1850 adv=24.2 map= 75 temp= 66 volt=13.7 cur=3.0 rx=1432
+[168469ms] TX ping '$' -> OK
+[168470ms] LIVE rpm=1400 adv=17.4 map=100 temp= 66 volt=13.7 cur=3.1 rx=1440
+[169005ms] LIVE rpm=1300 adv=22.4 map= 86 temp= 66 volt=13.9 cur=3.1 rx=1446
+[169540ms] LIVE rpm=2300 adv=23.6 map= 86 temp= 66 volt=13.9 cur=3.1 rx=1456
+[170189ms] TX ping '$' -> OK
+[170190ms] LIVE rpm=2450 adv=24.0 map= 88 temp= 66 volt=13.7 cur=3.1 rx=1469
+[170719ms] LIVE rpm=2600 adv=24.2 map= 88 temp= 66 volt=13.7 cur=3.1 rx=1479
+[171253ms] LIVE rpm=2850 adv=24.6 map= 88 temp= 66 volt=13.7 cur=3.1 rx=1492
+[171870ms] TX ping '$' -> OK
+[171870ms] LIVE rpm=2950 adv=25.0 map= 88 temp= 66 volt=13.7 cur=3.1 rx=1507
+[172401ms] LIVE rpm=2900 adv=26.8 map= 86 temp= 66 volt=13.7 cur=3.1 rx=1520
+[172920ms] LIVE rpm=2550 adv=24.2 map= 88 temp= 66 volt=13.7 cur=3.1 rx=1530
+[173508ms] TX ping '$' -> OK
+[173509ms] LIVE rpm=2600 adv=24.2 map= 88 temp= 66 volt=13.7 cur=3.1 rx=1543
+[174041ms] LIVE rpm=2650 adv=24.4 map= 88 temp= 66 volt=13.7 cur=3.1 rx=1554
+[174574ms] LIVE rpm=2650 adv=24.4 map= 88 temp= 66 volt=13.7 cur=3.0 rx=1566
+[175103ms] LIVE rpm=2750 adv=24.6 map= 88 temp= 66 volt=13.7 cur=3.0 rx=1578
+[175388ms] TX ping '$' -> OK
+[175622ms] LIVE rpm=2800 adv=24.6 map= 88 temp= 66 volt=13.7 cur=3.1 rx=1588
+[176159ms] LIVE rpm=2800 adv=24.6 map= 88 temp= 66 volt=13.7 cur=3.1 rx=1602
+[176695ms] LIVE rpm=2900 adv=24.8 map= 91 temp= 66 volt=13.7 cur=3.1 rx=1614
+[177108ms] TX ping '$' -> OK
+[177225ms] LIVE rpm=3150 adv=27.4 map=100 temp= 66 volt=13.7 cur=3.1 rx=1626
+[177397ms] WiFi retry...
+[177752ms] LIVE rpm=3200 adv=28.6 map=100 temp= 66 volt=13.7 cur=3.0 rx=1641
+[178289ms] LIVE rpm=3400 adv=29.2 map=100 temp= 66 volt=13.7 cur=3.0 rx=1656
+[178750ms] TX ping '$' -> OK
+[178867ms] LIVE rpm=3450 adv=30.0 map=100 temp= 66 volt=13.7 cur=2.9 rx=1672
+[179448ms] LIVE rpm=3600 adv=30.0 map=100 temp= 66 volt=13.7 cur=2.9 rx=1688
+[179970ms] LIVE rpm=3650 adv=30.0 map=100 temp= 66 volt=13.7 cur=2.9 rx=1705
+[180468ms] TX ping '$' -> OK
+[180586ms] LIVE rpm=3700 adv=30.0 map=100 temp= 66 volt=13.7 cur=2.9 rx=1721
+[181132ms] LIVE rpm=3800 adv=30.0 map=100 temp= 66 volt=13.7 cur=2.9 rx=1740
+[181671ms] LIVE rpm=3800 adv=30.0 map= 91 temp= 66 volt=13.7 cur=2.9 rx=1757
+[182110ms] TX ping '$' -> OK
+[182228ms] LIVE rpm=3850 adv=30.4 map= 86 temp= 66 volt=13.9 cur=2.9 rx=1773
+[182795ms] LIVE rpm=3750 adv=32.0 map= 75 temp= 66 volt=13.9 cur=2.9 rx=1791
+[183331ms] LIVE rpm=3800 adv=32.6 map= 72 temp= 66 volt=14.1 cur=2.9 rx=1805
+[183868ms] TX ping '$' -> OK
+[183869ms] LIVE rpm=3800 adv=32.6 map= 72 temp= 66 volt=14.1 cur=2.9 rx=1823
+[184397ms] LIVE rpm=2750 adv=25.0 map= 83 temp= 66 volt=14.1 cur=3.1 rx=1839
+[184917ms] LIVE rpm=2700 adv=25.4 map= 81 temp= 66 volt=13.9 cur=3.1 rx=1851
+[185509ms] TX ping '$' -> OK
+[185510ms] LIVE rpm=2700 adv=25.4 map= 81 temp= 66 volt=13.7 cur=3.0 rx=1864
+[186043ms] LIVE rpm=2700 adv=25.4 map= 81 temp= 66 volt=13.7 cur=3.0 rx=1874
+[186576ms] LIVE rpm=2700 adv=25.4 map= 81 temp= 66 volt=13.7 cur=3.0 rx=1887
+[187093ms] LIVE rpm=2700 adv=25.4 map= 81 temp= 66 volt=13.7 cur=3.0 rx=1898
+[187348ms] TX ping '$' -> OK
+[187468ms] WiFi retry...
+[187702ms] LIVE rpm=2750 adv=25.4 map= 81 temp= 66 volt=13.9 cur=3.1 rx=1911
+[188237ms] LIVE rpm=2750 adv=25.4 map= 81 temp= 66 volt=13.7 cur=3.1 rx=1923
+[188768ms] LIVE rpm=2750 adv=25.4 map= 81 temp= 66 volt=13.7 cur=3.1 rx=1936
+[188989ms] TX ping '$' -> OK
+[189339ms] LIVE rpm=2750 adv=25.6 map= 81 temp= 66 volt=13.7 cur=3.0 rx=1948
+[189876ms] LIVE rpm=2750 adv=25.6 map= 81 temp= 66 volt=13.7 cur=3.0 rx=1961
+[190411ms] LIVE rpm=2800 adv=25.6 map= 81 temp= 65 volt=13.7 cur=3.0 rx=1973
+[190790ms] TX ping '$' -> OK
+[191024ms] LIVE rpm=2800 adv=25.6 map= 81 temp= 65 volt=13.9 cur=3.1 rx=1986
+[191545ms] LIVE rpm=2800 adv=25.6 map= 81 temp= 65 volt=13.9 cur=3.1 rx=1998
+[192081ms] LIVE rpm=2800 adv=26.6 map= 68 temp= 65 volt=13.7 cur=3.1 rx=2011
+[192469ms] TX ping '$' -> OK
+[192587ms] LIVE rpm=2600 adv=24.0 map= 46 temp= 65 volt=13.7 cur=3.1 rx=2021
+[193122ms] LIVE rpm=2350 adv=23.8 map=100 temp= 65 volt=13.7 cur=3.1 rx=2032
+[193664ms] LIVE rpm=2350 adv=23.6 map=100 temp= 65 volt=13.7 cur=3.1 rx=2041
+[194228ms] TX ping '$' -> OK
+[194229ms] LIVE rpm=2350 adv=23.6 map=100 temp= 65 volt=13.9 cur=3.1 rx=2053
+[194775ms] LIVE rpm=2300 adv=23.6 map=100 temp= 65 volt=13.7 cur=3.1 rx=2064
+[195310ms] LIVE rpm=2300 adv=23.6 map=100 temp= 65 volt=13.7 cur=3.1 rx=2074
+[195909ms] TX ping '$' -> OK
+[195910ms] LIVE rpm=2250 adv=23.6 map=100 temp= 65 volt=13.9 cur=3.1 rx=2086
+[196429ms] LIVE rpm=2650 adv=24.8 map= 84 temp= 65 volt=13.9 cur=3.1 rx=2094
+[196965ms] LIVE rpm=2800 adv=24.4 map= 88 temp= 65 volt=13.7 cur=3.0 rx=2108
+[197549ms] TX ping '$' -> OK
+[197550ms] LIVE rpm=2800 adv=24.6 map= 88 temp= 65 volt=13.7 cur=3.0 rx=2122
+[197860ms] WiFi retry...
+[198095ms] LIVE rpm=2800 adv=24.6 map= 88 temp= 65 volt=13.7 cur=3.0 rx=2133
+[198615ms] LIVE rpm=2850 adv=24.8 map= 88 temp= 65 volt=13.9 cur=3.1 rx=2144
+[199228ms] TX ping '$' -> OK
+[199229ms] LIVE rpm=2850 adv=24.6 map= 88 temp= 65 volt=13.9 cur=3.1 rx=2160
+[199766ms] LIVE rpm=2850 adv=24.6 map= 88 temp= 65 volt=13.7 cur=3.1 rx=2172
+[200295ms] LIVE rpm=2850 adv=24.8 map= 86 temp= 65 volt=13.7 cur=3.0 rx=2184
+[200908ms] TX ping '$' -> OK
+[200909ms] LIVE rpm=2900 adv=26.4 map= 86 temp= 65 volt=13.7 cur=3.0 rx=2198
+[201444ms] LIVE rpm=2400 adv=23.6 map=100 temp= 65 volt=13.7 cur=3.0 rx=2209
+[201981ms] LIVE rpm=2350 adv=23.8 map=100 temp= 65 volt=13.7 cur=3.1 rx=2219
+[202628ms] TX ping '$' -> OK
+[202629ms] LIVE rpm=2350 adv=23.6 map=100 temp= 65 volt=13.9 cur=3.1 rx=2231
+[203147ms] LIVE rpm=2300 adv=23.6 map=100 temp= 65 volt=13.9 cur=3.0 rx=2242
+[203683ms] LIVE rpm=2300 adv=23.6 map=100 temp= 65 volt=13.7 cur=3.0 rx=2252
+[204308ms] TX ping '$' -> OK
+[204309ms] LIVE rpm=2250 adv=23.6 map=100 temp= 65 volt=13.9 cur=3.1 rx=2264
+[204837ms] LIVE rpm=2250 adv=23.6 map=100 temp= 65 volt=13.9 cur=3.1 rx=2272
+[205356ms] LIVE rpm=2200 adv=23.4 map=100 temp= 65 volt=13.9 cur=3.0 rx=2283
+[205950ms] TX ping '$' -> OK
+[205950ms] LIVE rpm=2200 adv=23.4 map=100 temp= 65 volt=13.9 cur=3.0 rx=2294
+[206485ms] LIVE rpm=2150 adv=23.4 map=100 temp= 65 volt=13.9 cur=3.1 rx=2302
+[207020ms] LIVE rpm=2150 adv=23.4 map=100 temp= 65 volt=13.7 cur=3.1 rx=2312
+[207669ms] TX ping '$' -> OK
+[207670ms] LIVE rpm=2100 adv=23.4 map=100 temp= 65 volt=13.9 cur=3.1 rx=2324
+[207957ms] WiFi retry...
+[208193ms] LIVE rpm=2100 adv=23.4 map=100 temp= 65 volt=13.9 cur=3.1 rx=2333
+[208725ms] LIVE rpm=2050 adv=23.2 map=100 temp= 65 volt=13.9 cur=3.0 rx=2341
+[209309ms] TX ping '$' -> OK
+[209310ms] LIVE rpm=2050 adv=23.2 map=100 temp= 65 volt=13.7 cur=3.0 rx=2352
+[209840ms] LIVE rpm=2050 adv=23.2 map=100 temp= 65 volt=13.7 cur=3.1 rx=2360
+[210359ms] LIVE rpm=2000 adv=23.2 map=100 temp= 65 volt=13.7 cur=3.1 rx=2369
+[210894ms] LIVE rpm=2000 adv=23.2 map=100 temp= 65 volt=13.7 cur=3.1 rx=2378
+[211189ms] TX ping '$' -> OK
+[211423ms] LIVE rpm=2000 adv=23.2 map=100 temp= 65 volt=13.9 cur=3.1 rx=2386
+[211960ms] LIVE rpm=2050 adv=23.4 map= 88 temp= 65 volt=13.9 cur=3.1 rx=2395
+[212477ms] LIVE rpm=2300 adv=31.0 map= 62 temp= 65 volt=13.9 cur=3.0 rx=2404
+[212828ms] TX ping '$' -> OK
+[213065ms] LIVE rpm=2400 adv=25.6 map= 76 temp= 65 volt=13.9 cur=3.0 rx=2416
+[213599ms] LIVE rpm=2450 adv=25.8 map= 76 temp= 65 volt=13.7 cur=3.1 rx=2427
+[214133ms] LIVE rpm=2450 adv=25.8 map= 76 temp= 65 volt=13.7 cur=3.1 rx=2437
+[214668ms] TX ping '$' -> OK
+[214669ms] LIVE rpm=2450 adv=25.8 map= 76 temp= 65 volt=13.7 cur=3.0 rx=2448
+[215203ms] LIVE rpm=2500 adv=25.8 map= 76 temp= 65 volt=13.7 cur=3.1 rx=2460
+[215739ms] LIVE rpm=2450 adv=27.6 map= 62 temp= 65 volt=13.9 cur=3.1 rx=2470
+[216388ms] TX ping '$' -> OK
+[216389ms] LIVE rpm=2250 adv=31.8 map= 48 temp= 65 volt=13.9 cur=3.1 rx=2481
+[216904ms] LIVE rpm=2200 adv=23.4 map= 88 temp= 65 volt=13.9 cur=3.1 rx=2491
+[217439ms] LIVE rpm=2150 adv=23.4 map=100 temp= 65 volt=13.9 cur=3.1 rx=2501
+[218068ms] TX ping '$' -> OK
+[218069ms] LIVE rpm=2150 adv=23.4 map=100 temp= 65 volt=13.9 cur=3.1 rx=2511
+[218380ms] WiFi retry...
+[218614ms] LIVE rpm=2150 adv=23.4 map=100 temp= 65 volt=13.9 cur=3.1 rx=2522
+[219130ms] LIVE rpm=2100 adv=23.4 map=100 temp= 65 volt=13.9 cur=3.1 rx=2530
+[219748ms] TX ping '$' -> OK
+[219749ms] LIVE rpm=2100 adv=23.4 map=100 temp= 65 volt=13.9 cur=3.1 rx=2542
+[220286ms] LIVE rpm=2100 adv=23.4 map=100 temp= 65 volt=13.9 cur=3.1 rx=2551
+[220820ms] LIVE rpm=2100 adv=23.4 map=100 temp= 65 volt=13.9 cur=3.1 rx=2560
+[221428ms] TX ping '$' -> OK
+[221429ms] LIVE rpm=2100 adv=23.8 map= 83 temp= 65 volt=13.9 cur=3.1 rx=2570
+[221947ms] LIVE rpm=2100 adv=30.6 map= 53 temp= 65 volt=13.9 cur=3.1 rx=2579
+[222498ms] LIVE rpm=2150 adv=31.6 map= 49 temp= 65 volt=13.9 cur=3.1 rx=2589
+[223148ms] TX ping '$' -> OK
+[223149ms] LIVE rpm=2100 adv=31.8 map= 48 temp= 65 volt=13.9 cur=3.1 rx=2599
+[223679ms] LIVE rpm=2150 adv=31.8 map= 46 temp= 65 volt=13.9 cur=3.1 rx=2610
+[224214ms] LIVE rpm=2150 adv=32.0 map= 46 temp= 65 volt=13.9 cur=3.1 rx=2619
+[224868ms] TX ping '$' -> OK
+[224869ms] LIVE rpm=2150 adv=31.8 map= 48 temp= 65 volt=13.9 cur=3.1 rx=2629
+[225382ms] LIVE rpm=2050 adv=23.2 map=100 temp= 65 volt=13.9 cur=3.0 rx=2639
+[225915ms] LIVE rpm=1950 adv=23.2 map=100 temp= 65 volt=13.9 cur=3.0 rx=2648
+[226588ms] TX ping '$' -> OK
+[226589ms] LIVE rpm=1900 adv=23.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=2658
+[227127ms] LIVE rpm=1850 adv=23.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=2666
+[227662ms] LIVE rpm=1850 adv=23.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=2674
+[228229ms] TX ping '$' -> OK
+[228230ms] LIVE rpm=1750 adv=22.4 map=100 temp= 65 volt=13.9 cur=3.0 rx=2682
+[228530ms] WiFi retry...
+[228765ms] LIVE rpm=1650 adv=22.0 map=100 temp= 65 volt=13.7 cur=3.0 rx=2689
+[229300ms] LIVE rpm=1600 adv=22.0 map=100 temp= 65 volt=13.7 cur=3.0 rx=2696
+[229909ms] TX ping '$' -> OK
+[229909ms] LIVE rpm=1400 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=2704
+[230475ms] LIVE rpm=1350 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=2710
+[231007ms] LIVE rpm=1300 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=2715
+[231588ms] TX ping '$' -> OK
+[231589ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=2721
+[232120ms] LIVE rpm=1100 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=2725
+[232641ms] LIVE rpm=1050 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=2729
+[233175ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=2733
+[233469ms] TX ping '$' -> OK
+[233702ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=2737
+[234235ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=2741
+[234747ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2745
+[235108ms] TX ping '$' -> OK
+[235342ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2749
+[235884ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2753
+[236417ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2756
+[236828ms] TX ping '$' -> OK
+[236945ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2760
+[237476ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2764
+[238007ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2768
+[238508ms] TX ping '$' -> OK
+[238509ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2772
+[238843ms] WiFi retry...
+[239076ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2776
+[239606ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2779
+[240228ms] TX ping '$' -> OK
+[240229ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2784
+[240761ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2788
+[241292ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2792
+[241908ms] TX ping '$' -> OK
+[241909ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2796
+[242440ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2800
+[242972ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2804
+[243628ms] TX ping '$' -> OK
+[243629ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2809
+[244142ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2812
+[244674ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2816
+[245349ms] TX ping '$' -> OK
+[245350ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2821
+[245880ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2825
+[246401ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2828
+[247069ms] TX ping '$' -> OK
+[247069ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2833
+[247604ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2837
+[248134ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2841
+[248748ms] TX ping '$' -> OK
+[248749ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2845
+[248932ms] WiFi retry...
+[249284ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2849
+[249815ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2853
+[250509ms] TX ping '$' -> OK
+[250510ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2858
+[251040ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2862
+[251559ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2865
+[252228ms] TX ping '$' -> OK
+[252229ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2870
+[252761ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2874
+[253275ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=2878
+[253948ms] TX ping '$' -> OK
+[253949ms] LIVE rpm=1500 adv=12.0 map= 84 temp= 65 volt=14.1 cur=3.1 rx=2884
+[254480ms] LIVE rpm=1500 adv=23.2 map= 81 temp= 65 volt=14.1 cur=3.1 rx=2890
+[255015ms] LIVE rpm=1900 adv=23.6 map= 83 temp= 65 volt=14.1 cur=3.1 rx=2898
+[255668ms] TX ping '$' -> OK
+[255669ms] LIVE rpm=1950 adv=24.2 map= 81 temp= 65 volt=13.9 cur=3.1 rx=2909
+[256199ms] LIVE rpm=2000 adv=24.6 map= 81 temp= 65 volt=13.9 cur=3.1 rx=2917
+[256731ms] LIVE rpm=2000 adv=27.6 map= 84 temp= 65 volt=13.9 cur=3.1 rx=2926
+[257388ms] TX ping '$' -> OK
+[257389ms] LIVE rpm=1400 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=2934
+[257922ms] LIVE rpm=1350 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=2940
+[258441ms] LIVE rpm=1300 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=2945
+[259029ms] TX ping '$' -> OK
+[259030ms] LIVE rpm=1550 adv=29.6 map= 84 temp= 65 volt=13.9 cur=3.1 rx=2953
+[259216ms] WiFi retry...
+[259570ms] LIVE rpm=1950 adv=26.4 map= 68 temp= 65 volt=13.9 cur=3.1 rx=2960
+[260105ms] LIVE rpm=2150 adv=26.0 map= 72 temp= 65 volt=13.9 cur=3.1 rx=2969
+[260669ms] TX ping '$' -> OK
+[260670ms] LIVE rpm=2250 adv=27.0 map= 68 temp= 65 volt=13.9 cur=3.1 rx=2980
+[261202ms] LIVE rpm=2350 adv=27.2 map= 68 temp= 65 volt=13.9 cur=3.1 rx=2989
+[261738ms] LIVE rpm=2050 adv=24.8 map= 76 temp= 65 volt=13.9 cur=3.1 rx=2999
+[262348ms] TX ping '$' -> OK
+[262349ms] LIVE rpm=2050 adv=25.0 map= 76 temp= 65 volt=13.9 cur=3.1 rx=3009
+[262883ms] LIVE rpm=2050 adv=25.2 map= 75 temp= 65 volt=13.9 cur=3.1 rx=3018
+[263455ms] LIVE rpm=2050 adv=25.2 map= 76 temp= 65 volt=13.9 cur=3.1 rx=3027
+[264068ms] TX ping '$' -> OK
+[264069ms] LIVE rpm=2300 adv=23.6 map= 88 temp= 65 volt=13.9 cur=3.1 rx=3039
+[264603ms] LIVE rpm=2150 adv=23.4 map=100 temp= 65 volt=13.9 cur=3.1 rx=3048
+[265137ms] LIVE rpm=2800 adv=24.6 map= 91 temp= 65 volt=13.9 cur=3.1 rx=3059
+[265788ms] TX ping '$' -> OK
+[265789ms] LIVE rpm=2900 adv=24.8 map= 91 temp= 65 volt=13.9 cur=3.1 rx=3076
+[266329ms] LIVE rpm=2800 adv=24.8 map= 89 temp= 65 volt=13.9 cur=3.1 rx=3088
+[266865ms] LIVE rpm=2800 adv=24.6 map= 86 temp= 65 volt=13.9 cur=3.1 rx=3099
+[267508ms] TX ping '$' -> OK
+[267509ms] LIVE rpm=2550 adv=28.6 map= 61 temp= 65 volt=13.9 cur=3.1 rx=3114
+[268032ms] LIVE rpm=2250 adv=28.0 map= 53 temp= 65 volt=13.9 cur=3.1 rx=3125
+[268562ms] LIVE rpm=1900 adv=27.4 map= 65 temp= 65 volt=13.9 cur=3.1 rx=3132
+[269188ms] TX ping '$' -> OK
+[269189ms] LIVE rpm=1900 adv=27.8 map= 62 temp= 65 volt=14.1 cur=3.1 rx=3143
+[269375ms] WiFi retry...
+[269730ms] LIVE rpm=1900 adv=28.0 map= 62 temp= 65 volt=14.1 cur=3.1 rx=3150
+[270249ms] LIVE rpm=1900 adv=28.0 map= 61 temp= 65 volt=14.1 cur=3.1 rx=3158
+[270828ms] TX ping '$' -> OK
+[270829ms] LIVE rpm=1900 adv=28.0 map= 61 temp= 65 volt=13.9 cur=3.1 rx=3168
+[271364ms] LIVE rpm=1900 adv=28.0 map= 61 temp= 65 volt=13.9 cur=3.1 rx=3176
+[271899ms] LIVE rpm=1900 adv=28.0 map= 61 temp= 65 volt=14.1 cur=3.1 rx=3183
+[272548ms] TX ping '$' -> OK
+[272549ms] LIVE rpm=1900 adv=28.0 map= 61 temp= 65 volt=14.1 cur=3.1 rx=3195
+[273090ms] LIVE rpm=1900 adv=28.2 map= 61 temp= 65 volt=14.1 cur=3.1 rx=3203
+[273627ms] LIVE rpm=1900 adv=28.2 map= 61 temp= 65 volt=14.1 cur=3.1 rx=3210
+[274229ms] TX ping '$' -> OK
+[274230ms] LIVE rpm=1900 adv=28.2 map= 61 temp= 65 volt=14.1 cur=3.1 rx=3221
+[274802ms] LIVE rpm=1900 adv=28.2 map= 61 temp= 65 volt=13.9 cur=3.1 rx=3230
+[275334ms] LIVE rpm=1950 adv=28.2 map= 61 temp= 65 volt=13.9 cur=3.1 rx=3237
+[275948ms] TX ping '$' -> OK
+[275949ms] LIVE rpm=1950 adv=28.2 map= 61 temp= 65 volt=13.9 cur=3.1 rx=3248
+[276495ms] LIVE rpm=1950 adv=28.2 map= 61 temp= 65 volt=13.9 cur=3.1 rx=3256
+[277032ms] LIVE rpm=1950 adv=28.2 map= 61 temp= 65 volt=13.9 cur=3.1 rx=3265
+[277630ms] TX ping '$' -> OK
+[277630ms] LIVE rpm=1950 adv=28.2 map= 61 temp= 65 volt=13.9 cur=3.1 rx=3275
+[278161ms] LIVE rpm=1950 adv=28.2 map= 61 temp= 65 volt=13.9 cur=3.1 rx=3283
+[278699ms] LIVE rpm=1950 adv=28.2 map= 61 temp= 65 volt=13.9 cur=3.1 rx=3291
+[279348ms] TX ping '$' -> OK
+[279349ms] LIVE rpm=1950 adv=28.2 map= 61 temp= 65 volt=13.9 cur=3.1 rx=3302
+[279634ms] WiFi retry...
+[279872ms] LIVE rpm=1950 adv=28.2 map= 61 temp= 65 volt=14.1 cur=3.1 rx=3310
+[280407ms] LIVE rpm=1950 adv=28.2 map= 61 temp= 65 volt=14.1 cur=3.1 rx=3318
+[281028ms] TX ping '$' -> OK
+[281029ms] LIVE rpm=1950 adv=28.2 map= 61 temp= 65 volt=14.1 cur=3.1 rx=3329
+[281567ms] LIVE rpm=1950 adv=28.2 map= 61 temp= 65 volt=14.1 cur=3.1 rx=3337
+[282143ms] LIVE rpm=1950 adv=28.2 map= 61 temp= 65 volt=13.9 cur=3.1 rx=3346
+[282748ms] TX ping '$' -> OK
+[282749ms] LIVE rpm=1950 adv=28.2 map= 61 temp= 65 volt=13.9 cur=3.1 rx=3357
+[283284ms] LIVE rpm=1950 adv=28.2 map= 61 temp= 65 volt=13.9 cur=3.1 rx=3365
+[283820ms] LIVE rpm=2000 adv=28.2 map= 61 temp= 65 volt=13.9 cur=3.1 rx=3373
+[284469ms] TX ping '$' -> OK
+[284470ms] LIVE rpm=2000 adv=28.2 map= 61 temp= 65 volt=13.9 cur=3.1 rx=3385
+[285002ms] LIVE rpm=2000 adv=28.2 map= 61 temp= 65 volt=13.9 cur=3.1 rx=3393
+[285539ms] LIVE rpm=2000 adv=28.8 map= 61 temp= 65 volt=13.9 cur=3.1 rx=3401
+[286148ms] TX ping '$' -> OK
+[286149ms] LIVE rpm=1800 adv=23.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=3411
+[286679ms] LIVE rpm=1700 adv=22.4 map=100 temp= 65 volt=13.9 cur=3.1 rx=3418
+[287211ms] LIVE rpm=1700 adv=22.4 map=100 temp= 65 volt=14.1 cur=3.1 rx=3425
+[287869ms] TX ping '$' -> OK
+[287870ms] LIVE rpm=1700 adv=22.2 map=100 temp= 65 volt=14.1 cur=3.1 rx=3435
+[288405ms] LIVE rpm=1650 adv=22.2 map=100 temp= 65 volt=14.1 cur=3.1 rx=3442
+[288921ms] LIVE rpm=1600 adv=22.2 map=100 temp= 65 volt=14.1 cur=3.1 rx=3448
+[289548ms] TX ping '$' -> OK
+[289549ms] LIVE rpm=1600 adv=22.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3457
+[289736ms] WiFi retry...
+[290091ms] LIVE rpm=1600 adv=22.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3463
+[290627ms] LIVE rpm=1550 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3470
+[291308ms] TX ping '$' -> OK
+[291309ms] LIVE rpm=1500 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3479
+[291834ms] LIVE rpm=1500 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3484
+[292366ms] LIVE rpm=1500 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3491
+[293028ms] TX ping '$' -> OK
+[293029ms] LIVE rpm=1450 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3499
+[293563ms] LIVE rpm=1450 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3505
+[294080ms] LIVE rpm=1450 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3512
+[294748ms] TX ping '$' -> OK
+[294749ms] LIVE rpm=1450 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3519
+[295282ms] LIVE rpm=1450 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3526
+[295818ms] LIVE rpm=1400 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3532
+[296468ms] TX ping '$' -> OK
+[296469ms] LIVE rpm=1450 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3539
+[297011ms] LIVE rpm=1400 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3545
+[297548ms] LIVE rpm=1350 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3551
+[298189ms] TX ping '$' -> OK
+[298190ms] LIVE rpm=1300 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3558
+[298707ms] LIVE rpm=1300 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3563
+[299239ms] LIVE rpm=1250 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3569
+[299908ms] TX ping '$' -> OK
+[299909ms] LIVE rpm=1200 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3575
+[300103ms] WiFi retry...
+[300456ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3580
+[300988ms] LIVE rpm=1100 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=3585
+[301629ms] TX ping '$' -> OK
+[301629ms] LIVE rpm=1050 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=3590
+[302157ms] LIVE rpm=1050 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=3594
+[302691ms] LIVE rpm=1000 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=3598
+[303270ms] TX ping '$' -> OK
+[303270ms] LIVE rpm=1000 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3603
+[303789ms] LIVE rpm=1000 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3606
+[304317ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3610
+[304850ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3614
+[305148ms] TX ping '$' -> OK
+[305382ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3618
+[305901ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3622
+[306430ms] LIVE rpm=1000 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.0 rx=3626
+[306828ms] TX ping '$' -> OK
+[306945ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.0 rx=3630
+[307477ms] LIVE rpm=1550 adv=12.0 map= 76 temp= 65 volt=14.1 cur=3.0 rx=3636
+[308048ms] LIVE rpm=1800 adv=23.6 map= 83 temp= 65 volt=13.9 cur=3.0 rx=3643
+[308548ms] TX ping '$' -> OK
+[308549ms] LIVE rpm=1950 adv=23.8 map= 83 temp= 65 volt=13.9 cur=3.0 rx=3652
+[309084ms] LIVE rpm=1950 adv=23.8 map= 83 temp= 65 volt=13.9 cur=3.0 rx=3661
+[309622ms] LIVE rpm=1950 adv=23.8 map= 83 temp= 65 volt=13.7 cur=3.0 rx=3669
+[310309ms] TX ping '$' -> OK
+[310310ms] LIVE rpm=1850 adv=24.2 map= 76 temp= 65 volt=13.7 cur=3.1 rx=3680
+[310501ms] WiFi retry...
+[310855ms] LIVE rpm=1500 adv=12.0 map=100 temp= 65 volt=13.7 cur=3.1 rx=3686
+[311390ms] LIVE rpm=1200 adv=12.0 map=100 temp= 65 volt=13.7 cur=3.1 rx=3691
+[312029ms] TX ping '$' -> OK
+[312030ms] LIVE rpm=1100 adv=12.0 map=100 temp= 65 volt=13.7 cur=3.1 rx=3697
+[312553ms] LIVE rpm=1100 adv=12.0 map=100 temp= 65 volt=13.7 cur=3.1 rx=3701
+[313079ms] LIVE rpm=1100 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=3706
+[313709ms] TX ping '$' -> OK
+[313709ms] LIVE rpm=1100 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=3711
+[314252ms] LIVE rpm=1100 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=3716
+[314784ms] LIVE rpm=1100 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=3720
+[315348ms] TX ping '$' -> OK
+[315349ms] LIVE rpm=1100 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3726
+[315875ms] LIVE rpm=1050 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3730
+[316408ms] LIVE rpm=1050 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3734
+[316945ms] LIVE rpm=1100 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3738
+[317389ms] TX ping '$' -> OK
+[317506ms] LIVE rpm=1050 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=3744
+[318034ms] LIVE rpm=1050 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=3748
+[318569ms] LIVE rpm=1050 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=3753
+[319109ms] TX ping '$' -> OK
+[319110ms] LIVE rpm=1000 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=3757
+[319681ms] LIVE rpm=2000 adv=23.0 map= 86 temp= 65 volt=13.9 cur=2.9 rx=3764
+[320211ms] LIVE rpm=2150 adv=23.4 map= 86 temp= 65 volt=13.9 cur=2.9 rx=3773
+[320633ms] WiFi retry...
+[320829ms] TX ping '$' -> OK
+[320830ms] LIVE rpm=2150 adv=23.4 map= 86 temp= 65 volt=13.9 cur=3.1 rx=3784
+[321364ms] LIVE rpm=2150 adv=23.4 map= 86 temp= 65 volt=13.9 cur=3.1 rx=3793
+[321889ms] LIVE rpm=2150 adv=25.0 map= 84 temp= 65 volt=13.9 cur=3.0 rx=3801
+[322508ms] TX ping '$' -> OK
+[322509ms] LIVE rpm=1550 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3810
+[323044ms] LIVE rpm=1200 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3815
+[323578ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=3820
+[324189ms] TX ping '$' -> OK
+[324190ms] LIVE rpm=1100 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=3826
+[324712ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=3830
+[325248ms] LIVE rpm=1100 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=3835
+[325909ms] TX ping '$' -> OK
+[325910ms] LIVE rpm=1100 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=3841
+[326444ms] LIVE rpm=1100 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3845
+[326973ms] LIVE rpm=1050 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3850
+[327629ms] TX ping '$' -> OK
+[327630ms] LIVE rpm=1050 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3855
+[328164ms] LIVE rpm=1000 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.0 rx=3859
+[328698ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.7 cur=3.0 rx=3863
+[329429ms] TX ping '$' -> OK
+[329430ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.7 cur=3.0 rx=3869
+[329965ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.7 cur=3.0 rx=3873
+[330512ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.7 cur=3.0 rx=3877
+[330707ms] WiFi retry...
+[331109ms] TX ping '$' -> OK
+[331110ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.7 cur=3.0 rx=3881
+[331651ms] LIVE rpm=1000 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3885
+[332199ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3888
+[332709ms] TX ping '$' -> OK
+[332710ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3893
+[333259ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3896
+[333790ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3900
+[334389ms] TX ping '$' -> OK
+[334389ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3904
+[334942ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3908
+[335491ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3912
+[336109ms] TX ping '$' -> OK
+[336110ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3917
+[336491ms] NTP start
+[336646ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3920
+[337199ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3924
+[337910ms] TX ping '$' -> OK
+[337910ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3930
+[338445ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3933
+[338977ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3937
+[339509ms] TX ping '$' -> OK
+[339509ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=3941
+[340058ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.0 rx=3945
+[340604ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.0 rx=3948
+[340904ms] WiFi 192.168.0.103
+[341229ms] TX ping '$' -> OK
+[341230ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.0 rx=3953
+[341767ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.0 rx=3957
+[342311ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3961
+[342949ms] TX ping '$' -> OK
+[342950ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3966
+[343480ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3970
+[344018ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3974
+[344629ms] TX ping '$' -> OK
+[344629ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=3978
+[345181ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=2.9 rx=3982
+[345726ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=2.9 rx=3986
+[346349ms] TX ping '$' -> OK
+[346350ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=2.9 rx=3991
+[346892ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=2.9 rx=3995
+[347440ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=2.9 rx=3998
+[348069ms] TX ping '$' -> OK
+[348070ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4003
+[348605ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4007
+[349155ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4011
+[349829ms] TX ping '$' -> OK
+[349830ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4016
+[350374ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4019
+[350912ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4023
+[351550ms] TX ping '$' -> OK
+[351551ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4028
+[352094ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4032
+[352644ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4036
+[353229ms] TX ping '$' -> OK
+[353229ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4040
+[353768ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4044
+[354323ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4048
+[355029ms] TX ping '$' -> OK
+[355030ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4054
+[355625ms] LIVE rpm=1000 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4058
+[356166ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4062
+[356709ms] TX ping '$' -> OK
+[356709ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4066
+[357257ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4070
+[357800ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4074
+[358389ms] TX ping '$' -> OK
+[358390ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4079
+[358936ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4082
+[359482ms] LIVE rpm=1000 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4087
+[360149ms] TX ping '$' -> OK
+[360150ms] LIVE rpm=1050 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4092
+[360690ms] LIVE rpm=1100 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4097
+[361241ms] LIVE rpm=1100 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4102
+[361909ms] TX ping '$' -> OK
+[361910ms] LIVE rpm=1200 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=4108
+[362453ms] LIVE rpm=1050 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=4112
+[363044ms] LIVE rpm=1050 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=4117
+[363549ms] TX ping '$' -> OK
+[363550ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.0 rx=4121
+[364090ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.7 cur=3.0 rx=4125
+[364639ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.7 cur=3.0 rx=4129
+[365350ms] TX ping '$' -> OK
+[365350ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.7 cur=3.0 rx=4134
+[365884ms] LIVE rpm= 900 adv=12.0 map=100 temp= 65 volt=13.7 cur=3.0 rx=4138
+[366432ms] LIVE rpm= 950 adv=12.0 map=100 temp= 65 volt=13.7 cur=3.1 rx=4142
+[367109ms] TX ping '$' -> OK
+[367110ms] LIVE rpm=1200 adv=12.0 map=100 temp= 65 volt=13.7 cur=3.1 rx=4148
+[367641ms] LIVE rpm=1200 adv=12.0 map=100 temp= 65 volt=13.7 cur=3.1 rx=4153
+[368173ms] LIVE rpm=1200 adv=12.0 map=100 temp= 65 volt=13.7 cur=3.1 rx=4158
+[368788ms] TX ping '$' -> OK
+[368789ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4164
+[369325ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4169
+[369851ms] LIVE rpm=1200 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4173
+[370429ms] TX ping '$' -> OK
+[370429ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4179
+[370968ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4184
+[371506ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4189
+[372150ms] TX ping '$' -> OK
+[372151ms] LIVE rpm=1200 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4195
+[372685ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4199
+[373235ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4205
+[373869ms] TX ping '$' -> OK
+[373870ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4211
+[374462ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4216
+[375003ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4221
+[375671ms] TX ping '$' -> OK
+[375672ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4228
+[376216ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4232
+[376763ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4238
+[377350ms] TX ping '$' -> OK
+[377351ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4244
+[377892ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4248
+[378441ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.1 rx=4254
+[379109ms] TX ping '$' -> OK
+[379110ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=4260
+[379652ms] LIVE rpm=1200 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=4265
+[380235ms] LIVE rpm=1200 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=4270
+[380749ms] TX ping '$' -> OK
+[380750ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=4275
+[381291ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=13.9 cur=3.0 rx=4280
+[381840ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.0 rx=4285
+[382469ms] TX ping '$' -> OK
+[382470ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.0 rx=4291
+[383009ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.0 rx=4296
+[383550ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.0 rx=4301
+[384149ms] TX ping '$' -> OK
+[384150ms] LIVE rpm=1200 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.0 rx=4307
+[384678ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.0 rx=4311
+[385222ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.0 rx=4316
+[385909ms] TX ping '$' -> OK
+[385910ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.0 rx=4322
+[386435ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.0 rx=4327
+[386971ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.0 rx=4332
+[387629ms] TX ping '$' -> OK
+[387630ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=4339
+[388157ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=4344
+[388701ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=4349
+[389349ms] TX ping '$' -> OK
+[389350ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=4355
+[389937ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=4356
+[390466ms] LIVE rpm=1150 adv=12.0 map=100 temp= 65 volt=14.1 cur=3.1 rx=4356
+[393470ms] Disc reason=520
+[393470ms] Scan...
+[393469ms] TX ping '$' -> FAIL
+[403590ms] Gefunden!
+[403703ms] Verbinde...
+[404229ms] Verbunden!
+[404230ms] Conn: itvl=40.0ms lat=0 to=4000ms mtu=23 enc=0 auth=0 bond=0
+[404231ms] PostConnect: itvl=40.0ms lat=0 to=4000ms mtu=23 enc=0 auth=0 bond=0
+[405429ms] === Services: 6 ===
+[405430ms] SVC 0x1800
+[405789ms]   CHR 0x2a00 h=3 prop=0A N=0 I=0 R=1 W=1
+[405790ms]   CHR 0x2a01 h=5 prop=02 N=0 I=0 R=1 W=0
+[405790ms]   CHR 0x2a04 h=7 prop=02 N=0 I=0 R=1 W=0
+[405790ms]   CHR 0x2aa6 h=9 prop=02 N=0 I=0 R=1 W=0
+[405790ms] SVC 0x1801
+[405869ms] SVC 6e400001-b5a3-f393-e0a9-e50e24dcca9e
+[406229ms]   CHR 6e400002-b5a3-f393-e0a9-e50e24dcca9e h=13 prop=0C N=0 I=0 R=0 W=1
+[406230ms]   CHR 6e400003-b5a3-f393-e0a9-e50e24dcca9e h=15 prop=10 N=1 I=0 R=0 W=0
+[406230ms] SVC 0x1804
+[406509ms]   CHR 0x2a07 h=19 prop=02 N=0 I=0 R=1 W=0
+[406510ms] SVC 0x180a
+[406749ms]   CHR 0x2a29 h=22 prop=02 N=0 I=0 R=1 W=0
+[406750ms]   CHR 0x2a25 h=24 prop=02 N=0 I=0 R=1 W=0
+[406750ms]   CHR 0x2a26 h=26 prop=02 N=0 I=0 R=1 W=0
+[406750ms] SVC 0x180f
+[406989ms]   CHR 0x2a19 h=29 prop=12 N=1 I=0 R=1 W=0
+[406990ms] NUS TX h=15 prop=10 N=1 I=0
+[406990ms] NUS RX h=13 prop=0C W=1 WNR=1
+[407419ms] NUS CCCD off -> OK
+[407509ms] sub NUS TX -> OK
+[407629ms] NUS CCCD read len=2 : 01 00
+[407630ms] Sub NUS: OK
+[407749ms] TX ping '$' -> OK
+[407989ms] TX enter CR -> OK
+[408149ms] TX ping '$' -> OK
+[408150ms] HB conn=1 rx=0
+[409204ms] HB conn=1 rx=0
+[412509ms] TX ping '$' -> FAIL
+[412510ms] Disc reason=520
+[412510ms] Scan...
