@@ -528,14 +528,27 @@ Firmware now has a first self-contained logging layer:
 - SPIFFS is mounted on boot
 - current log file: `/drive.csv`
 - rotated old log file: `/drive_old.csv`
-- CSV header:
+- CSV header from the 2026-05-22 logger/time update:
 
 ```csv
-ms,time,rpm,advance_deg,map_kpa,temp_c,volt_v,coil_a,rx
+ms;zeit;epoch;rpm;zuendung_grad;map_kpa;temp_c;spannung_v;spule_a;rx
 ```
 
 - rows are written only when RPM is greater than 650 U/min
-- time is currently `BOOT+<millis>` until RTC/NTP time is added
+- when home WiFi is connected, firmware starts NTP with the German local
+  timezone and writes local wall-clock time into `zeit`
+- the M5Dial BM8563 RTC is used on I2C `SDA=G11` / `SCL=G12`:
+  - boot loads system time from RTC when plausible
+  - successful NTP writes the current local time back to RTC
+  - with the backup battery fitted, time can survive reboot/offline use
+- if neither RTC nor NTP is valid yet, `zeit` falls back to `BOOT+<millis>`
+  and `epoch` is `0`
+- CSV uses semicolons and decimal commas so German Excel/LibreOffice imports it
+  without column/decimal confusion
+- if an older comma-separated `/drive.csv` exists, firmware rotates it to
+  `/drive_old.csv` once and starts a fresh semicolon CSV
+- if NTP does not answer in the local network, the WebGUI can set time from the
+  browser/laptop clock via `Sync from browser` and write that value to RTC
 - current log rotates at about 1.2 MB so the default 1.5 MB SPIFFS partition is
   not filled completely
 
@@ -546,7 +559,7 @@ Mini WebGUI:
 
 ```text
 SSID:     M5Dial-123-Setup
-Password: 12345678
+Password: open
 URL:      http://192.168.4.1/
 ```
 
@@ -569,3 +582,9 @@ WPS flow for FRITZ!Box:
 If WPS is unreliable on a given router, the fallback is either the WebGUI SSID
 form or a later `.env`/build-flag based development-only credential file. Avoid
 committing real WiFi secrets.
+
+Serial helper commands:
+
+- `wifi_status`: show WiFi mode, connection, IP and saved SSID name
+- `time_status`: show whether NTP/local time is valid and the current timestamp
+- `time_set <epoch>`: set ESP system time from USB serial and write RTC

@@ -5,6 +5,9 @@
 #include <DNSServer.h>
 #include <SPIFFS.h>
 #include <Preferences.h>
+#include <time.h>
+#include <sys/time.h>
+#include <Wire.h>
 #include "esp_wps.h"
 #include <M5GFX.h>
 #include <lgfx/v1/panel/Panel_GC9A01.hpp>
@@ -94,11 +97,23 @@ static bool        g_wpsActive = false;
 static bool        g_saveWifiAfterWps = false;
 static bool        g_captiveActive = false;
 static bool        g_haveSavedWifi = false;
+static bool        g_ntpStarted = false;
+static bool        g_timeValid = false;
+static bool        g_rtcOk = false;
+static bool        g_rtcValid = false;
+static bool        g_rtcWrittenFromNtp = false;
+static int         g_ntpPolls = 0;
+static char        g_timeSource[12] = "boot";
 static uint32_t    g_lastWifiCheck = 0;
 static String      g_serialLine;
 
 static const char* LOG_FILE = "/drive.csv";
 static const char* OLD_LOG_FILE = "/drive_old.csv";
+static const char* LOG_HEADER = "ms;zeit;epoch;rpm;zuendung_grad;map_kpa;temp_c;spannung_v;spule_a;rx";
+static const char* LOCAL_TZ = "CET-1CEST,M3.5.0,M10.5.0/3";
+static constexpr uint8_t RTC_ADDR = 0x51;
+static constexpr uint8_t RTC_SDA = 11;
+static constexpr uint8_t RTC_SCL = 12;
 static constexpr size_t kMaxLogBytes = 1200000;  // keep room in the default 1.5 MB SPIFFS partition
 static esp_wps_config_t wpsConfig;
 
@@ -172,10 +187,195 @@ static void printLiveSummary() {
                   (unsigned long)g_rxCnt);
 }
 
-static String bootTimestamp() {
+static uint8_t bcdToBin(uint8_t v) {
+    return ((v >> 4) * 10) + (v & 0x0F);
+}
+
+static uint8_t binToBcd(uint8_t v) {
+    return ((v / 10) << 4) | (v % 10);
+}
+
+static void setTimeSource(const char* source) {
+    strncpy(g_timeSource, source, sizeof(g_timeSource) - 1);
+    g_timeSource[sizeof(g_timeSource) - 1] = 0;
+}
+
+static bool rtcWriteRegister(uint8_t reg, uint8_t value) {
+    Wire.beginTransmission(RTC_ADDR);
+    Wire.write(reg);
+    Wire.write(value);
+    return Wire.endTransmission() == 0;
+}
+
+static bool rtcReadRegisters(uint8_t reg, uint8_t* data, size_t len) {
+    Wire.beginTransmission(RTC_ADDR);
+    Wire.write(reg);
+    if (Wire.endTransmission(false) != 0) return false;
+    return Wire.requestFrom((int)RTC_ADDR, (int)len) == (int)len &&
+           Wire.readBytes(data, len) == len;
+}
+
+static bool rtcWriteFromSystemTime() {
+    if (!g_rtcOk || !g_timeValid) return false;
+
+    time_t now = time(nullptr);
+    struct tm info;
+    localtime_r(&now, &info);
+
+    uint8_t data[8] = {
+        0x02,
+        binToBcd(info.tm_sec),
+        binToBcd(info.tm_min),
+        binToBcd(info.tm_hour),
+        binToBcd(info.tm_mday),
+        binToBcd(info.tm_wday),
+        binToBcd(info.tm_mon + 1),
+        binToBcd((info.tm_year + 1900) % 100)
+    };
+
+    Wire.beginTransmission(RTC_ADDR);
+    Wire.write(data, sizeof(data));
+    if (Wire.endTransmission() != 0) return false;
+
+    g_rtcValid = true;
+    g_rtcWrittenFromNtp = true;
+    pushLog("RTC gesetzt");
+    return true;
+}
+
+static bool rtcLoadSystemTime() {
+    if (!g_rtcOk) return false;
+
+    uint8_t data[7] = {};
+    if (!rtcReadRegisters(0x02, data, sizeof(data))) return false;
+    if (data[0] & 0x80) {
+        pushLog("RTC Zeit ungueltig");
+        return false;
+    }
+
+    struct tm info = {};
+    info.tm_sec = bcdToBin(data[0] & 0x7F);
+    info.tm_min = bcdToBin(data[1] & 0x7F);
+    info.tm_hour = bcdToBin(data[2] & 0x3F);
+    info.tm_mday = bcdToBin(data[3] & 0x3F);
+    info.tm_wday = bcdToBin(data[4] & 0x07);
+    info.tm_mon = bcdToBin(data[5] & 0x1F) - 1;
+    info.tm_year = bcdToBin(data[6]) + 100;  // 2000-based for this project lifetime.
+    info.tm_isdst = -1;
+
+    if (info.tm_year < 124 || info.tm_mon < 0 || info.tm_mon > 11 ||
+        info.tm_mday < 1 || info.tm_mday > 31 || info.tm_hour > 23 ||
+        info.tm_min > 59 || info.tm_sec > 59) {
+        pushLog("RTC Datum unplausibel");
+        return false;
+    }
+
+    time_t epoch = mktime(&info);
+    if (epoch <= 1700000000) {
+        pushLog("RTC Epoch unplausibel");
+        return false;
+    }
+
+    timeval tv;
+    tv.tv_sec = epoch;
+    tv.tv_usec = 0;
+    settimeofday(&tv, nullptr);
+    g_timeValid = true;
+    g_rtcValid = true;
+    setTimeSource("RTC");
+    char buf[24];
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &info);
+    pushLog("RTC Zeit %s", buf);
+    return true;
+}
+
+static bool setSystemEpoch(time_t epoch, const char* source) {
+    if (epoch <= 1700000000) return false;
+
+    timeval tv;
+    tv.tv_sec = epoch;
+    tv.tv_usec = 0;
+    settimeofday(&tv, nullptr);
+    g_timeValid = true;
+    setTimeSource(source);
+
+    struct tm info;
+    localtime_r(&epoch, &info);
+    char buf[24];
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &info);
+    pushLog("%s Zeit %s", source, buf);
+    if (g_rtcOk) rtcWriteFromSystemTime();
+    return true;
+}
+
+static void setupRtcTime() {
+    setenv("TZ", LOCAL_TZ, 1);
+    tzset();
+    Wire.begin(RTC_SDA, RTC_SCL);
+    Wire.setClock(400000);
+
+    Wire.beginTransmission(RTC_ADDR);
+    g_rtcOk = Wire.endTransmission() == 0;
+    pushLog("RTC: %s", g_rtcOk ? "OK" : "FAIL");
+    if (!g_rtcOk) return;
+
+    rtcWriteRegister(0x00, 0x00);
+    rtcWriteRegister(0x01, 0x00);
+    rtcLoadSystemTime();
+}
+
+static bool updateTimeState() {
+    time_t now = time(nullptr);
+    bool valid = now > 1700000000;
+    if (valid && !g_timeValid) {
+        struct tm info;
+        localtime_r(&now, &info);
+        char buf[24];
+        strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &info);
+        pushLog("Zeit OK %s", buf);
+        setTimeSource("NTP");
+    }
+    g_timeValid = valid;
+    if (valid && g_ntpStarted && g_rtcOk && !g_rtcWrittenFromNtp &&
+        strcmp(g_timeSource, "NTP") == 0) {
+        rtcWriteFromSystemTime();
+    }
+    return valid;
+}
+
+static void startNtpIfNeeded() {
+    if (g_ntpStarted || WiFi.status() != WL_CONNECTED) return;
+    setenv("TZ", LOCAL_TZ, 1);
+    tzset();
+    configTzTime(LOCAL_TZ,
+                 "192.168.0.1",
+                 "fritz.box",
+                 "pool.ntp.org");
+    g_ntpStarted = true;
+    pushLog("NTP start");
+}
+
+static String localTimestamp() {
+    updateTimeState();
+    if (g_timeValid) {
+        struct tm info;
+        time_t now = time(nullptr);
+        localtime_r(&now, &info);
+        char buf[24];
+        strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &info);
+        return String(buf);
+    }
     char buf[24];
     snprintf(buf, sizeof(buf), "BOOT+%lu", (unsigned long)millis());
     return String(buf);
+}
+
+static String deFloat(float value, uint8_t precision) {
+    char buf[18];
+    snprintf(buf, sizeof(buf), "%.*f", precision, value);
+    String out(buf);
+    out.replace('.', ',');
+    return out;
 }
 
 static void ensureLogHeader() {
@@ -184,12 +384,23 @@ static void ensureLogHeader() {
     if (!needsHeader) {
         File existing = SPIFFS.open(LOG_FILE, FILE_READ);
         needsHeader = !existing || existing.size() == 0;
+        if (existing && !needsHeader) {
+            String header = existing.readStringUntil('\n');
+            header.trim();
+            if (!header.equals(LOG_HEADER)) {
+                existing.close();
+                SPIFFS.remove(OLD_LOG_FILE);
+                SPIFFS.rename(LOG_FILE, OLD_LOG_FILE);
+                needsHeader = true;
+                pushLog("Log Format neu");
+            }
+        }
         if (existing) existing.close();
     }
     if (needsHeader) {
         File f = SPIFFS.open(LOG_FILE, FILE_WRITE);
         if (f) {
-            f.println("ms,time,rpm,advance_deg,map_kpa,temp_c,volt_v,coil_a,rx");
+            f.println(LOG_HEADER);
             f.close();
         }
     }
@@ -214,15 +425,17 @@ static void appendLiveCsv() {
 
     File f = SPIFFS.open(LOG_FILE, FILE_APPEND);
     if (!f) return;
-    f.printf("%lu,%s,%d,%.1f,%d,%d,%.1f,%.1f,%lu\n",
+    String ts = localTimestamp();
+    f.printf("%lu;%s;%ld;%d;%s;%d;%d;%s;%s;%lu\n",
              (unsigned long)millis(),
-             bootTimestamp().c_str(),
+             ts.c_str(),
+             g_timeValid ? (long)time(nullptr) : 0L,
              (int)g_rpm,
-             (float)g_adv,
+             deFloat((float)g_adv, 1).c_str(),
              (int)g_map,
              (int)g_tmp,
-             (float)g_vlt,
-             (float)g_cur,
+             deFloat((float)g_vlt, 1).c_str(),
+             deFloat((float)g_cur, 1).c_str(),
              (unsigned long)g_rxCnt);
     f.close();
 }
@@ -265,6 +478,7 @@ static void sendLogFile(const char* path, const char* downloadName) {
 static void handleRoot() {
     String ip = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
     String mode = WiFi.status() == WL_CONNECTED ? "Home WiFi" : "Setup AP";
+    String timeText = localTimestamp();
     String html;
     html.reserve(2200);
     html += "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>";
@@ -275,8 +489,14 @@ static void handleRoot() {
     html += ".muted{color:#aaa}.box{border:1px solid #333;padding:14px;margin:14px 0;max-width:560px}";
     html += "</style></head><body><h2>M5Dial 123Tune Logger</h2>";
     html += "<div class='box'><div>Mode: " + mode + "</div><div>IP: " + ip + "</div>";
+    html += "<div>Time: " + timeText + " (" + String(g_timeValid ? g_timeSource : "boot") + ")</div>";
+    html += "<div>GW: " + WiFi.gatewayIP().toString() + " / DNS: " + WiFi.dnsIP().toString() + "</div>";
+    html += "<div>RTC: " + String(g_rtcOk ? (g_rtcValid ? "valid" : "seen") : "missing") + " / NTP polls: " + String(g_ntpPolls) + "</div>";
     html += "<div>BLE: " + String(g_conn ? "connected" : "searching") + "</div>";
     html += "<div>RPM: " + String((int)g_rpm) + " / ADV: " + String((float)g_adv, 1) + " / MAP: " + String((int)g_map) + "</div></div>";
+    html += "<div class='box'><h3>Time</h3>";
+    html += "<button onclick=\"fetch('/time_set?epoch='+Math.floor(Date.now()/1000)).then(()=>location.reload())\">Sync from browser</button>";
+    html += "<p class='muted'>Uses this phone/laptop clock and stores it in the M5Dial RTC.</p></div>";
     html += "<div class='box'><h3>Logs</h3>";
     html += "<div>Current: " + humanBytes(fileSize(LOG_FILE)) + "</div>";
     html += "<div>Old rotated: " + humanBytes(fileSize(OLD_LOG_FILE)) + "</div>";
@@ -289,6 +509,20 @@ static void handleRoot() {
     html += "<p class='muted'>If no home WiFi is saved, connect to AP M5Dial-123-Setup and open 192.168.4.1.</p></div>";
     html += "</body></html>";
     web.send(200, "text/html", html);
+}
+
+static void handleTimeSet() {
+    if (!web.hasArg("epoch")) {
+        web.send(400, "text/plain", "Missing epoch");
+        return;
+    }
+
+    time_t epoch = (time_t)web.arg("epoch").toInt();
+    if (!setSystemEpoch(epoch, "Browser")) {
+        web.send(400, "text/plain", "Invalid epoch");
+        return;
+    }
+    web.send(200, "text/plain", localTimestamp());
 }
 
 static void handleWifiSave() {
@@ -357,6 +591,7 @@ static void handleWpsStart() {
 
 static void setupWebGui() {
     web.on("/", HTTP_GET, handleRoot);
+    web.on("/time_set", HTTP_GET, handleTimeSet);
     web.on("/wifi", HTTP_GET, handleWifiSave);
     web.on("/wps", HTTP_GET, handleWpsStart);
     web.on("/clear", HTTP_GET, handleClearLog);
@@ -377,11 +612,18 @@ static void onWifiEvent(WiFiEvent_t event, arduino_event_info_t info) {
     switch (event) {
         case ARDUINO_EVENT_WIFI_STA_GOT_IP:
             if (g_saveWifiAfterWps) {
-                prefs.putString("ssid", WiFi.SSID());
-                prefs.putString("pass", WiFi.psk());
+                String ssid = WiFi.SSID();
+                String psk = WiFi.psk();
+                if (ssid.length() > 0 && psk.length() > 0) {
+                    prefs.putString("ssid", ssid);
+                    prefs.putString("pass", psk);
+                    pushLog("WPS gespeichert");
+                } else {
+                    pushLog("WPS ohne Key");
+                }
                 g_saveWifiAfterWps = false;
-                pushLog("WPS gespeichert");
             }
+            startNtpIfNeeded();
             break;
         case ARDUINO_EVENT_WPS_ER_SUCCESS:
             pushLog("WPS OK");
@@ -464,6 +706,12 @@ static void maintainWifi() {
             announced = true;
             pushLog("WiFi %s", WiFi.localIP().toString().c_str());
         }
+        startNtpIfNeeded();
+        updateTimeState();
+        if (!g_timeValid && g_ntpStarted && g_ntpPolls < 12) {
+            g_ntpPolls++;
+            pushLog("NTP warte %d", g_ntpPolls);
+        }
         return;
     }
 
@@ -480,13 +728,20 @@ static void maintainWifi() {
 
 static void printWifiStatus() {
     String ssid = prefs.getString("ssid", "");
-    Serial.printf("[WIFI] mode=%s conn=%d ip=%s saved_ssid=%s static=%d saved_ip=%s\n",
+    Serial.printf("[WIFI] mode=%s conn=%d ip=%s gw=%s dns=%s saved_ssid=%s static=%d saved_ip=%s time=%s rtc=%d/%d ntp=%d polls=%d\n",
                   g_wifiAp ? "AP" : "STA",
                   WiFi.status() == WL_CONNECTED ? 1 : 0,
                   WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString().c_str() : "-",
+                  WiFi.gatewayIP().toString().c_str(),
+                  WiFi.dnsIP().toString().c_str(),
                   ssid.length() ? ssid.c_str() : "<none>",
                   prefs.getBool("static", false) ? 1 : 0,
-                  prefs.getString("ip", "-").c_str());
+                  prefs.getString("ip", "-").c_str(),
+                  localTimestamp().c_str(),
+                  g_rtcOk ? 1 : 0,
+                  g_rtcValid ? 1 : 0,
+                  g_ntpStarted ? 1 : 0,
+                  g_ntpPolls);
 }
 
 static void handleSerialCommand(String line) {
@@ -513,6 +768,35 @@ static void handleSerialCommand(String line) {
         Serial.println("[WIFI] DHCP enabled, rebooting");
         delay(300);
         ESP.restart();
+        return;
+    }
+
+    if (line.equalsIgnoreCase("time_status")) {
+        Serial.printf("[TIME] valid=%d epoch=%ld local=%s source=%s ntp_started=%d polls=%d rtc=%d/%d gw=%s dns=%s\n",
+                      g_timeValid ? 1 : 0,
+                      g_timeValid ? (long)time(nullptr) : 0L,
+                      localTimestamp().c_str(),
+                      g_timeSource,
+                      g_ntpStarted ? 1 : 0,
+                      g_ntpPolls,
+                      g_rtcOk ? 1 : 0,
+                      g_rtcValid ? 1 : 0,
+                      WiFi.gatewayIP().toString().c_str(),
+                      WiFi.dnsIP().toString().c_str());
+        return;
+    }
+
+    if (line.startsWith("time_set ")) {
+        String value = line.substring(9);
+        value.trim();
+        time_t epoch = (time_t)value.toInt();
+        if (setSystemEpoch(epoch, "Serial")) {
+            Serial.printf("[TIME] set ok epoch=%ld local=%s\n",
+                          (long)epoch,
+                          localTimestamp().c_str());
+        } else {
+            Serial.println("[TIME] invalid epoch");
+        }
         return;
     }
 
@@ -584,7 +868,7 @@ static void handleSerialCommand(String line) {
         return;
     }
 
-    Serial.println("[CMD] unknown. use: wifi_status | wifi_clear | wifi_dhcp | wifi <ssid> <pass> | wifi_static <ssid> <pass> <ip>");
+    Serial.println("[CMD] unknown. use: wifi_status | time_status | time_set <epoch> | wifi_clear | wifi_dhcp | wifi <ssid> <pass> | wifi_static <ssid> <pass> <ip>");
 }
 
 static void pollSerialCommands() {
@@ -918,6 +1202,7 @@ void setup() {
     pinMode(BTN_PIN, INPUT_PULLUP);
 
     pushLog("Start...");
+    setupRtcTime();
     g_fsOk = SPIFFS.begin(true);
     pushLog("SPIFFS: %s", g_fsOk ? "OK" : "FAIL");
     ensureLogHeader();
