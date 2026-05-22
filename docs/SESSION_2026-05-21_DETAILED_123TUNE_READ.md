@@ -356,7 +356,7 @@ Implemented on 2026-05-22 behind an explicit tune-test guard:
   - blue: negative/retard steps
 - the main display additionally shows `TUNE +N` or `TUNE -N` next to the
   advance value while tune mode is active
-- CSV rows include `tune_active` and `tune_steps` for later analysis
+- CSV rows include `map_bar`, `tune_active`, and `tune_steps` for later analysis
 
 Planned safety model:
 
@@ -514,7 +514,7 @@ it is much easier to store and compare than the raw 5-byte notification dump.
 
 Display change:
 
-- main page now shows `ADVANCE deg`, `MAP kPa`, and `RPM`
+- main page now shows `ADVANCE deg`, `MAP bar`, and `RPM`
 - short press still switches to the temperature/voltage page
 - long press starts the read-only `v@` and `10@..13@` dump
 
@@ -548,7 +548,7 @@ Firmware now has a first self-contained logging layer:
 - CSV header from the 2026-05-22 logger/time update:
 
 ```csv
-ms;zeit;epoch;rpm;zuendung_grad;map_kpa;temp_c;spannung_v;spule_a;rx;tune_active;tune_steps
+ms;zeit;epoch;rpm;zuendung_grad;map_kpa;map_bar;temp_c;spannung_v;spule_a;rx;tune_active;tune_steps
 ```
 
 - rows are written only when RPM is greater than 650 U/min

@@ -116,7 +116,7 @@ static String      g_serialLine;
 
 static const char* LOG_FILE = "/drive.csv";
 static const char* OLD_LOG_FILE = "/drive_old.csv";
-static const char* LOG_HEADER = "ms;zeit;epoch;rpm;zuendung_grad;map_kpa;temp_c;spannung_v;spule_a;rx;tune_active;tune_steps";
+static const char* LOG_HEADER = "ms;zeit;epoch;rpm;zuendung_grad;map_kpa;map_bar;temp_c;spannung_v;spule_a;rx;tune_active;tune_steps";
 static const char* LOCAL_TZ = "CET-1CEST,M3.5.0,M10.5.0/3";
 static constexpr uint8_t RTC_ADDR = 0x51;
 static constexpr uint8_t RTC_SDA = 11;
@@ -385,6 +385,10 @@ static String deFloat(float value, uint8_t precision) {
     return out;
 }
 
+static float mapBar() {
+    return (float)g_map / 100.0f;
+}
+
 static void ensureLogHeader() {
     if (!g_fsOk) return;
     bool needsHeader = !SPIFFS.exists(LOG_FILE);
@@ -433,13 +437,14 @@ static void appendLiveCsv() {
     File f = SPIFFS.open(LOG_FILE, FILE_APPEND);
     if (!f) return;
     String ts = localTimestamp();
-    f.printf("%lu;%s;%ld;%d;%s;%d;%d;%s;%s;%lu;%d;%+d\n",
+    f.printf("%lu;%s;%ld;%d;%s;%d;%s;%d;%s;%s;%lu;%d;%+d\n",
              (unsigned long)millis(),
              ts.c_str(),
              g_timeValid ? (long)time(nullptr) : 0L,
              (int)g_rpm,
              deFloat((float)g_adv, 1).c_str(),
              (int)g_map,
+             deFloat(mapBar(), 2).c_str(),
              (int)g_tmp,
              deFloat((float)g_vlt, 1).c_str(),
              deFloat((float)g_cur, 1).c_str(),
@@ -493,29 +498,30 @@ static void handleRoot() {
     html += "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>";
     html += "<title>M5Dial 123Tune</title><style>";
     html += "body{font-family:system-ui,Segoe UI,Arial;margin:24px;background:#111;color:#eee}";
+    html += ".layout{display:grid;grid-template-columns:360px minmax(320px,590px);gap:22px;align-items:start}.side{min-width:0}@media(max-width:780px){.layout{display:block}}";
     html += "a,button{display:inline-block;margin:6px 8px 6px 0;padding:10px 12px;background:#e94b1b;color:white;text-decoration:none;border:0;border-radius:4px}";
     html += "input{display:block;margin:6px 0 12px;padding:10px;width:min(360px,90vw)}";
-    html += ".muted{color:#aaa}.box{border:1px solid #333;padding:14px;margin:14px 0;max-width:560px}";
+    html += ".muted{color:#aaa}.box{border:1px solid #333;padding:14px;margin:0 0 14px;max-width:560px}";
     html += ".dial{width:min(82vw,320px);aspect-ratio:1;border-radius:50%;background:#050505;margin:4px 0 18px;position:relative;border:10px solid #242424;box-shadow:inset 0 0 38px #1d2830,0 0 16px #000;color:#ddd;overflow:hidden}";
     html += ".top{position:absolute;top:28px;left:0;right:0;font-size:14px;font-weight:700}.ble{position:absolute;left:72px;color:#2577ff}.ign{position:absolute;left:72px;top:16px;color:#e93b2f}.mode{position:absolute;right:72px;color:#3e75ff}";
     html += ".adv{position:absolute;top:76px;left:0;right:0;text-align:center;font-size:58px;line-height:1;font-weight:800;color:#f39c12}.lbl{font-size:14px;color:#ccc;font-weight:700;letter-spacing:0}.tunelbl{position:absolute;top:135px;left:0;right:0;text-align:center;font-size:16px;font-weight:800;color:#f39c12}";
     html += ".map{position:absolute;top:162px;left:0;right:0;text-align:center;font-size:28px;font-weight:800;color:#46b9ff}.maplbl{position:absolute;top:193px;left:0;right:0;text-align:center;color:#888;font-size:14px;font-weight:700}";
     html += ".rpm{position:absolute;bottom:30px;left:0;right:0;text-align:center;font-size:44px;font-weight:800;color:#fff}.rpmlbl{position:absolute;bottom:14px;left:0;right:0;text-align:center;color:#888;font-size:14px;font-weight:700}";
     html += ".red{color:#ff3838}.blue{color:#3aa0ff}.orange{color:#f39c12}";
-    html += "</style></head><body><h2>M5Dial 123Tune</h2>";
+    html += "</style></head><body><h2>M5Dial 123Tune</h2><div class='layout'><div>";
     html += "<div class='dial'>";
     html += "<div class='top'><span id='ble' class='ble'>BLE</span><span id='ign' class='ign'>IGN #0</span><span id='mode' class='mode'>ADV</span></div>";
     html += "<div id='adv' class='adv orange'>0.0</div>";
     html += "<div id='tunelbl' class='tunelbl orange'>ADVANCE&nbsp; deg</div>";
-    html += "<div id='map' class='map'>0</div><div class='maplbl'>MAP&nbsp; kPa</div>";
+    html += "<div id='map' class='map'>0.00</div><div class='maplbl'>MAP&nbsp; bar</div>";
     html += "<div id='rpm' class='rpm'>0</div><div class='rpmlbl'>RPM</div>";
-    html += "</div>";
+    html += "</div></div><div class='side'>";
     html += "<div class='box'><div>Mode: " + mode + "</div><div>IP: " + ip + "</div>";
     html += "<div>Time: " + timeText + " (" + String(g_timeValid ? g_timeSource : "boot") + ")</div>";
     html += "<div>GW: " + WiFi.gatewayIP().toString() + " / DNS: " + WiFi.dnsIP().toString() + "</div>";
     html += "<div>RTC: " + String(g_rtcOk ? (g_rtcValid ? "valid" : "seen") : "missing") + " / NTP polls: " + String(g_ntpPolls) + "</div>";
     html += "<div>BLE: " + String(g_conn ? "connected" : "searching") + "</div>";
-    html += "<div>RPM: " + String((int)g_rpm) + " / ADV: " + String((float)g_adv, 1) + " / MAP: " + String((int)g_map) + "</div></div>";
+    html += "<div>RPM: " + String((int)g_rpm) + " / ADV: " + String((float)g_adv, 1) + " / MAP: " + String(mapBar(), 2) + " bar</div></div>";
     html += "<div class='box'><h3>Time</h3>";
     html += "<button onclick=\"fetch('/time_set?epoch='+Math.floor(Date.now()/1000)).then(()=>location.reload())\">Sync from browser</button>";
     html += "<p class='muted'>Uses this phone/laptop clock and stores it in the M5Dial RTC.</p></div>";
@@ -528,7 +534,7 @@ static void handleRoot() {
     html += "<button type='submit'>Save WiFi and reboot</button></form>";
     html += "<a href='/wps'>Start WPS</a>";
     html += "<p class='muted'>WPS: first click Start WPS here, then press Connect/WPS on the FRITZ!Box.</p>";
-    html += "<p class='muted'>If no home WiFi is saved, connect to AP M5Dial-123-Setup and open 192.168.4.1.</p></div>";
+    html += "<p class='muted'>If no home WiFi is saved, connect to AP M5Dial-123-Setup and open 192.168.4.1.</p></div></div></div>";
     html += "<script>";
     html += "function c(s){return s>0?'red':s<0?'blue':'orange'}";
     html += "async function upd(){try{let r=await fetch('/state',{cache:'no-store'});let d=await r.json();";
@@ -536,7 +542,7 @@ static void handleRoot() {
     html += "ign.textContent='IGN #'+d.rx;mode.textContent=d.tune_active?('T'+(d.tune_steps>=0?'+':'')+d.tune_steps):(d.view?'T/V':'ADV');";
     html += "adv.textContent=Number(d.adv).toFixed(1);adv.className='adv '+c(d.tune_steps);";
     html += "tunelbl.textContent=d.tune_active?('TUNE '+(d.tune_steps>=0?'+':'')+d.tune_steps):'ADVANCE  deg';tunelbl.className='tunelbl '+c(d.tune_steps);";
-    html += "map.textContent=d.map;rpm.textContent=d.rpm;}catch(e){}}";
+    html += "map.textContent=Number(d.map_bar).toFixed(2);rpm.textContent=d.rpm;}catch(e){}}";
     html += "upd();setInterval(upd,2000);</script>";
     html += "</body></html>";
     web.send(200, "text/html", html);
@@ -552,6 +558,7 @@ static void handleState() {
     json += "\"rpm\":" + String((int)g_rpm) + ",";
     json += "\"adv\":" + String((float)g_adv, 1) + ",";
     json += "\"map\":" + String((int)g_map) + ",";
+    json += "\"map_bar\":" + String(mapBar(), 2) + ",";
     json += "\"temp\":" + String((int)g_tmp) + ",";
     json += "\"volt\":" + String((float)g_vlt, 1) + ",";
     json += "\"tune_armed\":" + String(g_tuneArmed ? "true" : "false") + ",";
@@ -1329,13 +1336,13 @@ static void drawMain() {
         display.drawString("ADVANCE  deg", 120, 106);
     }
 
-    snprintf(buf, sizeof(buf), "%d", (int)g_map);
+    snprintf(buf, sizeof(buf), "%.2f", mapBar());
     display.setFont(&fonts::Font4);
     display.setTextColor(TFT_SKYBLUE);
     display.drawString(buf, 120, g_tuneActive ? 148 : 140);
     display.setFont(&fonts::FreeSans9pt7b);
     display.setTextColor(TFT_DARKGREY);
-    display.drawString("MAP  kPa", 120, g_tuneActive ? 170 : 162);
+    display.drawString("MAP  bar", 120, g_tuneActive ? 170 : 162);
 
     snprintf(buf, sizeof(buf), "%d", (int)g_rpm);
     display.setFont(&fonts::Font6);
