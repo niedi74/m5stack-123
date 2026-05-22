@@ -688,26 +688,26 @@ static void drawMain() {
     snprintf(buf, sizeof(buf), "%.1f", (float)g_adv);
     display.setFont(&fonts::Font7);
     display.setTextColor(TFT_ORANGE);
-    display.drawString(buf, 120, 78);
+    display.drawString(buf, 120, 72);
     display.setFont(&fonts::FreeSans9pt7b);
     display.setTextColor(TFT_DARKGREY);
-    display.drawString("ADVANCE  deg", 120, 115);
+    display.drawString("ADVANCE  deg", 120, 106);
 
     snprintf(buf, sizeof(buf), "%d", (int)g_map);
     display.setFont(&fonts::Font4);
     display.setTextColor(TFT_SKYBLUE);
-    display.drawString(buf, 120, 151);
+    display.drawString(buf, 120, 140);
     display.setFont(&fonts::FreeSans9pt7b);
     display.setTextColor(TFT_DARKGREY);
-    display.drawString("MAP  kPa", 120, 174);
+    display.drawString("MAP  kPa", 120, 162);
 
     snprintf(buf, sizeof(buf), "%d", (int)g_rpm);
-    display.setFont(&fonts::Font7);
+    display.setFont(&fonts::Font6);
     display.setTextColor(TFT_WHITE);
-    display.drawString(buf, 120, 205);
+    display.drawString(buf, 120, 199);
     display.setFont(&fonts::FreeSans9pt7b);
     display.setTextColor(TFT_DARKGREY);
-    display.drawString("RPM", 120, 229);
+    display.drawString("RPM", 120, 221);
 }
 
 static void drawAux() {
