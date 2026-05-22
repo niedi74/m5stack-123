@@ -2,6 +2,7 @@
 #include <NimBLEDevice.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <DNSServer.h>
 #include <SPIFFS.h>
 #include <Preferences.h>
 #include "esp_wps.h"
@@ -85,12 +86,16 @@ static constexpr float kLogMinRpm = 650.0f;    // suppress ignition/start-only n
 
 // --- Local logging / Web GUI ---
 static WebServer   web(80);
+static DNSServer   dns;
 static Preferences prefs;
 static bool        g_fsOk = false;
 static bool        g_wifiAp = false;
 static bool        g_wpsActive = false;
 static bool        g_saveWifiAfterWps = false;
+static bool        g_captiveActive = false;
+static bool        g_haveSavedWifi = false;
 static uint32_t    g_lastWifiCheck = 0;
+static String      g_serialLine;
 
 static const char* LOG_FILE = "/drive.csv";
 static const char* OLD_LOG_FILE = "/drive_old.csv";
@@ -357,6 +362,14 @@ static void setupWebGui() {
     web.on("/clear", HTTP_GET, handleClearLog);
     web.on("/download", HTTP_GET, []() { sendLogFile(LOG_FILE, "m5dial_123tune_drive.csv"); });
     web.on("/download_old", HTTP_GET, []() { sendLogFile(OLD_LOG_FILE, "m5dial_123tune_drive_old.csv"); });
+    web.onNotFound([]() {
+        if (g_wifiAp) {
+            web.sendHeader("Location", "http://192.168.4.1/", true);
+            web.send(302, "text/plain", "");
+            return;
+        }
+        web.send(404, "text/plain", "Not found");
+    });
     web.begin();
 }
 
@@ -397,8 +410,17 @@ static void onWifiEvent(WiFiEvent_t event, arduino_event_info_t info) {
 
 static void startSetupAp() {
     if (g_wifiAp) return;
-    WiFi.mode(WIFI_AP_STA);
-    WiFi.softAP("M5Dial-123-Setup", "12345678");
+    WiFi.disconnect(true, true);
+    delay(100);
+    WiFi.mode(WIFI_AP);
+    WiFi.setSleep(false);
+    WiFi.softAPConfig(IPAddress(192, 168, 4, 1),
+                      IPAddress(192, 168, 4, 1),
+                      IPAddress(255, 255, 255, 0));
+    // Open setup AP for maximum compatibility during onboarding.
+    WiFi.softAP("M5Dial-123-Setup", nullptr, 6, 0, 4);
+    dns.start(53, "*", IPAddress(192, 168, 4, 1));
+    g_captiveActive = true;
     g_wifiAp = true;
     pushLog("AP 192.168.4.1");
 }
@@ -411,7 +433,17 @@ static void setupWifi() {
 
     String ssid = prefs.getString("ssid", "");
     String pass = prefs.getString("pass", "");
+    g_haveSavedWifi = ssid.length() > 0;
     if (ssid.length() > 0) {
+        if (prefs.getBool("static", false)) {
+            IPAddress ip, gw, mask, dns1;
+            ip.fromString(prefs.getString("ip", "192.168.0.13"));
+            gw.fromString(prefs.getString("gw", "192.168.0.1"));
+            mask.fromString(prefs.getString("mask", "255.255.255.0"));
+            dns1.fromString(prefs.getString("dns", "192.168.0.1"));
+            WiFi.config(ip, gw, mask, dns1);
+            pushLog("WiFi static %s", ip.toString().c_str());
+        }
         WiFi.begin(ssid.c_str(), pass.c_str());
         pushLog("WiFi connect...");
     } else {
@@ -421,6 +453,7 @@ static void setupWifi() {
 }
 
 static void maintainWifi() {
+    if (g_captiveActive) dns.processNextRequest();
     web.handleClient();
     if (millis() - g_lastWifiCheck < 5000) return;
     g_lastWifiCheck = millis();
@@ -434,8 +467,136 @@ static void maintainWifi() {
         return;
     }
 
-    if (prefs.getString("ssid", "").length() > 0 && millis() > 20000) {
-        startSetupAp();
+    if (g_haveSavedWifi && WiFi.status() != WL_CONNECTED) {
+        static uint32_t lastReconnect = 0;
+        if (millis() - lastReconnect >= 10000) {
+            lastReconnect = millis();
+            WiFi.reconnect();
+            pushLog("WiFi retry...");
+        }
+        return;
+    }
+}
+
+static void printWifiStatus() {
+    String ssid = prefs.getString("ssid", "");
+    Serial.printf("[WIFI] mode=%s conn=%d ip=%s saved_ssid=%s static=%d saved_ip=%s\n",
+                  g_wifiAp ? "AP" : "STA",
+                  WiFi.status() == WL_CONNECTED ? 1 : 0,
+                  WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString().c_str() : "-",
+                  ssid.length() ? ssid.c_str() : "<none>",
+                  prefs.getBool("static", false) ? 1 : 0,
+                  prefs.getString("ip", "-").c_str());
+}
+
+static void handleSerialCommand(String line) {
+    line.trim();
+    if (line.length() == 0) return;
+
+    if (line.equalsIgnoreCase("wifi_status")) {
+        printWifiStatus();
+        return;
+    }
+
+    if (line.equalsIgnoreCase("wifi_clear")) {
+        prefs.putString("ssid", "");
+        prefs.putString("pass", "");
+        prefs.putBool("static", false);
+        Serial.println("[WIFI] cleared, rebooting");
+        delay(300);
+        ESP.restart();
+        return;
+    }
+
+    if (line.equalsIgnoreCase("wifi_dhcp")) {
+        prefs.putBool("static", false);
+        Serial.println("[WIFI] DHCP enabled, rebooting");
+        delay(300);
+        ESP.restart();
+        return;
+    }
+
+    if (line.startsWith("wifi_static ")) {
+        // Format: wifi_static <ssid> <pass> <ip> [gateway] [mask] [dns]
+        String parts[7];
+        int count = 0;
+        int start = 0;
+        while (count < 7) {
+            int sep = line.indexOf(' ', start);
+            if (sep < 0) {
+                parts[count++] = line.substring(start);
+                break;
+            }
+            parts[count++] = line.substring(start, sep);
+            start = sep + 1;
+            while (start < (int)line.length() && line[start] == ' ') start++;
+        }
+        if (count < 4) {
+            Serial.println("[WIFI] usage: wifi_static <ssid> <pass> <ip> [gateway] [mask] [dns]");
+            return;
+        }
+
+        IPAddress ip, gw, mask, dns1;
+        if (!ip.fromString(parts[3])) {
+            Serial.println("[WIFI] invalid static ip");
+            return;
+        }
+        gw.fromString(count > 4 ? parts[4] : "192.168.0.1");
+        mask.fromString(count > 5 ? parts[5] : "255.255.255.0");
+        dns1.fromString(count > 6 ? parts[6] : "192.168.0.1");
+
+        prefs.putString("ssid", parts[1]);
+        prefs.putString("pass", parts[2]);
+        prefs.putBool("static", true);
+        prefs.putString("ip", ip.toString());
+        prefs.putString("gw", gw.toString());
+        prefs.putString("mask", mask.toString());
+        prefs.putString("dns", dns1.toString());
+        Serial.printf("[WIFI] saved static ssid=%s ip=%s rebooting\n",
+                      parts[1].c_str(), ip.toString().c_str());
+        delay(300);
+        ESP.restart();
+        return;
+    }
+
+    if (line.startsWith("wifi ")) {
+        // Format: wifi <ssid> <pass>
+        int p1 = line.indexOf(' ');
+        int p2 = line.indexOf(' ', p1 + 1);
+        if (p2 < 0) {
+            Serial.println("[WIFI] usage: wifi <ssid> <pass>");
+            return;
+        }
+        String ssid = line.substring(p1 + 1, p2);
+        String pass = line.substring(p2 + 1);
+        ssid.trim();
+        pass.trim();
+        if (ssid.length() == 0) {
+            Serial.println("[WIFI] empty ssid");
+            return;
+        }
+        prefs.putString("ssid", ssid);
+        prefs.putString("pass", pass);
+        prefs.putBool("static", false);
+        Serial.printf("[WIFI] saved ssid=%s rebooting\n", ssid.c_str());
+        delay(300);
+        ESP.restart();
+        return;
+    }
+
+    Serial.println("[CMD] unknown. use: wifi_status | wifi_clear | wifi_dhcp | wifi <ssid> <pass> | wifi_static <ssid> <pass> <ip>");
+}
+
+static void pollSerialCommands() {
+    while (Serial.available() > 0) {
+        char c = (char)Serial.read();
+        if (c == '\r') continue;
+        if (c == '\n') {
+            handleSerialCommand(g_serialLine);
+            g_serialLine = "";
+            continue;
+        }
+        if (g_serialLine.length() < 200) g_serialLine += c;
     }
 }
 
@@ -769,6 +930,7 @@ void setup() {
 }
 
 void loop() {
+    pollSerialCommands();
     maintainWifi();
     handleButton();
 
