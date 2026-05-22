@@ -520,3 +520,52 @@ pio device monitor --port COM4 --baud 115200 | Tee-Object -FilePath D:\_claude\M
 
 Do not use permanent write/tune functions during the first driving log. Keep
 this run read-only.
+
+## Update 2026-05-22 - internal CSV logging and mini WebGUI
+
+Firmware now has a first self-contained logging layer:
+
+- SPIFFS is mounted on boot
+- current log file: `/drive.csv`
+- rotated old log file: `/drive_old.csv`
+- CSV header:
+
+```csv
+ms,time,rpm,advance_deg,map_kpa,temp_c,volt_v,coil_a,rx
+```
+
+- rows are written only when RPM is greater than 650 U/min
+- time is currently `BOOT+<millis>` until RTC/NTP time is added
+- current log rotates at about 1.2 MB so the default 1.5 MB SPIFFS partition is
+  not filled completely
+
+Mini WebGUI:
+
+- runs on port 80
+- if no WiFi credentials are stored, the M5Dial starts setup AP:
+
+```text
+SSID:     M5Dial-123-Setup
+Password: 12345678
+URL:      http://192.168.4.1/
+```
+
+- WebGUI actions:
+  - download current CSV
+  - download old rotated CSV
+  - clear current CSV
+  - enter home WiFi SSID/password
+  - start WPS push-button setup
+
+WPS flow for FRITZ!Box:
+
+1. Connect phone/laptop to `M5Dial-123-Setup`.
+2. Open `http://192.168.4.1/`.
+3. Click `Start WPS`.
+4. Press `Connect/WPS` on the FRITZ!Box.
+5. On success, the M5Dial stores SSID/password in Preferences/NVS and connects
+   to the home WiFi on future boots.
+
+If WPS is unreliable on a given router, the fallback is either the WebGUI SSID
+form or a later `.env`/build-flag based development-only credential file. Avoid
+committing real WiFi secrets.

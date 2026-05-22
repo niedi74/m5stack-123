@@ -1,5 +1,10 @@
 #include <Arduino.h>
 #include <NimBLEDevice.h>
+#include <WiFi.h>
+#include <WebServer.h>
+#include <SPIFFS.h>
+#include <Preferences.h>
+#include "esp_wps.h"
 #include <M5GFX.h>
 #include <lgfx/v1/panel/Panel_GC9A01.hpp>
 #include <lgfx/v1/platforms/esp32/Bus_SPI.hpp>
@@ -78,6 +83,20 @@ static volatile bool  doConnect = false;
 static constexpr bool kReadOnConnect = false;  // live mode stays quiet; long press starts read-only dump
 static constexpr float kLogMinRpm = 650.0f;    // suppress ignition/start-only noise in drive logs
 
+// --- Local logging / Web GUI ---
+static WebServer   web(80);
+static Preferences prefs;
+static bool        g_fsOk = false;
+static bool        g_wifiAp = false;
+static bool        g_wpsActive = false;
+static bool        g_saveWifiAfterWps = false;
+static uint32_t    g_lastWifiCheck = 0;
+
+static const char* LOG_FILE = "/drive.csv";
+static const char* OLD_LOG_FILE = "/drive_old.csv";
+static constexpr size_t kMaxLogBytes = 1200000;  // keep room in the default 1.5 MB SPIFFS partition
+static esp_wps_config_t wpsConfig;
+
 static uint8_t charProps(NimBLERemoteCharacteristic* c) {
     uint8_t props = 0;
     if (c->canBroadcast())       props |= 0x01;
@@ -146,6 +165,278 @@ static void printLiveSummary() {
                   (float)g_vlt,
                   (float)g_cur,
                   (unsigned long)g_rxCnt);
+}
+
+static String bootTimestamp() {
+    char buf[24];
+    snprintf(buf, sizeof(buf), "BOOT+%lu", (unsigned long)millis());
+    return String(buf);
+}
+
+static void ensureLogHeader() {
+    if (!g_fsOk) return;
+    bool needsHeader = !SPIFFS.exists(LOG_FILE);
+    if (!needsHeader) {
+        File existing = SPIFFS.open(LOG_FILE, FILE_READ);
+        needsHeader = !existing || existing.size() == 0;
+        if (existing) existing.close();
+    }
+    if (needsHeader) {
+        File f = SPIFFS.open(LOG_FILE, FILE_WRITE);
+        if (f) {
+            f.println("ms,time,rpm,advance_deg,map_kpa,temp_c,volt_v,coil_a,rx");
+            f.close();
+        }
+    }
+}
+
+static void rotateLogIfNeeded() {
+    if (!g_fsOk || !SPIFFS.exists(LOG_FILE)) return;
+    File f = SPIFFS.open(LOG_FILE, FILE_READ);
+    size_t sz = f ? f.size() : 0;
+    if (f) f.close();
+    if (sz <= kMaxLogBytes) return;
+
+    SPIFFS.remove(OLD_LOG_FILE);
+    SPIFFS.rename(LOG_FILE, OLD_LOG_FILE);
+    ensureLogHeader();
+    pushLog("Log rotiert");
+}
+
+static void appendLiveCsv() {
+    if (!g_fsOk || g_rpm <= kLogMinRpm) return;
+    rotateLogIfNeeded();
+
+    File f = SPIFFS.open(LOG_FILE, FILE_APPEND);
+    if (!f) return;
+    f.printf("%lu,%s,%d,%.1f,%d,%d,%.1f,%.1f,%lu\n",
+             (unsigned long)millis(),
+             bootTimestamp().c_str(),
+             (int)g_rpm,
+             (float)g_adv,
+             (int)g_map,
+             (int)g_tmp,
+             (float)g_vlt,
+             (float)g_cur,
+             (unsigned long)g_rxCnt);
+    f.close();
+}
+
+static String humanBytes(size_t bytes) {
+    char buf[24];
+    if (bytes >= 1048576) {
+        snprintf(buf, sizeof(buf), "%.2f MB", bytes / 1048576.0f);
+    } else if (bytes >= 1024) {
+        snprintf(buf, sizeof(buf), "%.1f KB", bytes / 1024.0f);
+    } else {
+        snprintf(buf, sizeof(buf), "%u B", (unsigned)bytes);
+    }
+    return String(buf);
+}
+
+static size_t fileSize(const char* path) {
+    if (!g_fsOk || !SPIFFS.exists(path)) return 0;
+    File f = SPIFFS.open(path, FILE_READ);
+    size_t sz = f ? f.size() : 0;
+    if (f) f.close();
+    return sz;
+}
+
+static void sendLogFile(const char* path, const char* downloadName) {
+    if (!g_fsOk || !SPIFFS.exists(path)) {
+        web.send(404, "text/plain", "Log file not found");
+        return;
+    }
+    File f = SPIFFS.open(path, FILE_READ);
+    if (!f) {
+        web.send(500, "text/plain", "Cannot open log file");
+        return;
+    }
+    web.sendHeader("Content-Disposition", String("attachment; filename=\"") + downloadName + "\"");
+    web.streamFile(f, "text/csv");
+    f.close();
+}
+
+static void handleRoot() {
+    String ip = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
+    String mode = WiFi.status() == WL_CONNECTED ? "Home WiFi" : "Setup AP";
+    String html;
+    html.reserve(2200);
+    html += "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>";
+    html += "<title>M5Dial 123Tune</title><style>";
+    html += "body{font-family:system-ui,Segoe UI,Arial;margin:24px;background:#111;color:#eee}";
+    html += "a,button{display:inline-block;margin:6px 8px 6px 0;padding:10px 12px;background:#e94b1b;color:white;text-decoration:none;border:0;border-radius:4px}";
+    html += "input{display:block;margin:6px 0 12px;padding:10px;width:min(360px,90vw)}";
+    html += ".muted{color:#aaa}.box{border:1px solid #333;padding:14px;margin:14px 0;max-width:560px}";
+    html += "</style></head><body><h2>M5Dial 123Tune Logger</h2>";
+    html += "<div class='box'><div>Mode: " + mode + "</div><div>IP: " + ip + "</div>";
+    html += "<div>BLE: " + String(g_conn ? "connected" : "searching") + "</div>";
+    html += "<div>RPM: " + String((int)g_rpm) + " / ADV: " + String((float)g_adv, 1) + " / MAP: " + String((int)g_map) + "</div></div>";
+    html += "<div class='box'><h3>Logs</h3>";
+    html += "<div>Current: " + humanBytes(fileSize(LOG_FILE)) + "</div>";
+    html += "<div>Old rotated: " + humanBytes(fileSize(OLD_LOG_FILE)) + "</div>";
+    html += "<a href='/download'>Download current CSV</a><a href='/download_old'>Download old CSV</a><a href='/clear'>Clear current log</a></div>";
+    html += "<div class='box'><h3>Home WiFi</h3><form action='/wifi' method='get'>";
+    html += "<input name='ssid' placeholder='SSID'><input name='pass' placeholder='Password' type='password'>";
+    html += "<button type='submit'>Save WiFi and reboot</button></form>";
+    html += "<a href='/wps'>Start WPS</a>";
+    html += "<p class='muted'>WPS: first click Start WPS here, then press Connect/WPS on the FRITZ!Box.</p>";
+    html += "<p class='muted'>If no home WiFi is saved, connect to AP M5Dial-123-Setup and open 192.168.4.1.</p></div>";
+    html += "</body></html>";
+    web.send(200, "text/html", html);
+}
+
+static void handleWifiSave() {
+    String ssid = web.arg("ssid");
+    String pass = web.arg("pass");
+    ssid.trim();
+    if (ssid.length() == 0) {
+        web.send(400, "text/plain", "Missing ssid");
+        return;
+    }
+    prefs.putString("ssid", ssid);
+    prefs.putString("pass", pass);
+    web.send(200, "text/plain", "WiFi saved. Rebooting...");
+    delay(500);
+    ESP.restart();
+}
+
+static void handleClearLog() {
+    if (g_fsOk) {
+        SPIFFS.remove(LOG_FILE);
+        ensureLogHeader();
+    }
+    web.sendHeader("Location", "/");
+    web.send(302, "text/plain", "");
+}
+
+static void initWpsConfig() {
+    memset(&wpsConfig, 0, sizeof(wpsConfig));
+    wpsConfig.wps_type = WPS_TYPE_PBC;
+    strncpy(wpsConfig.factory_info.manufacturer, "M5Stack", sizeof(wpsConfig.factory_info.manufacturer) - 1);
+    strncpy(wpsConfig.factory_info.model_number, "M5Dial", sizeof(wpsConfig.factory_info.model_number) - 1);
+    strncpy(wpsConfig.factory_info.model_name, "M5Dial 123Tune", sizeof(wpsConfig.factory_info.model_name) - 1);
+    strncpy(wpsConfig.factory_info.device_name, "m5dial-123", sizeof(wpsConfig.factory_info.device_name) - 1);
+}
+
+static void stopWps() {
+    if (!g_wpsActive) return;
+    esp_wifi_wps_disable();
+    g_wpsActive = false;
+}
+
+static bool startWps() {
+    stopWps();
+    initWpsConfig();
+    WiFi.mode(g_wifiAp ? WIFI_AP_STA : WIFI_STA);
+    esp_err_t en = esp_wifi_wps_enable(&wpsConfig);
+    if (en != ESP_OK) {
+        pushLog("WPS enable FAIL");
+        return false;
+    }
+    esp_err_t st = esp_wifi_wps_start(0);
+    if (st != ESP_OK) {
+        esp_wifi_wps_disable();
+        pushLog("WPS start FAIL");
+        return false;
+    }
+    g_wpsActive = true;
+    pushLog("WPS gestartet");
+    return true;
+}
+
+static void handleWpsStart() {
+    bool ok = startWps();
+    web.send(200, "text/plain", ok ? "WPS started. Press Connect/WPS on FRITZ!Box now." : "WPS start failed");
+}
+
+static void setupWebGui() {
+    web.on("/", HTTP_GET, handleRoot);
+    web.on("/wifi", HTTP_GET, handleWifiSave);
+    web.on("/wps", HTTP_GET, handleWpsStart);
+    web.on("/clear", HTTP_GET, handleClearLog);
+    web.on("/download", HTTP_GET, []() { sendLogFile(LOG_FILE, "m5dial_123tune_drive.csv"); });
+    web.on("/download_old", HTTP_GET, []() { sendLogFile(OLD_LOG_FILE, "m5dial_123tune_drive_old.csv"); });
+    web.begin();
+}
+
+static void onWifiEvent(WiFiEvent_t event, arduino_event_info_t info) {
+    switch (event) {
+        case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+            if (g_saveWifiAfterWps) {
+                prefs.putString("ssid", WiFi.SSID());
+                prefs.putString("pass", WiFi.psk());
+                g_saveWifiAfterWps = false;
+                pushLog("WPS gespeichert");
+            }
+            break;
+        case ARDUINO_EVENT_WPS_ER_SUCCESS:
+            pushLog("WPS OK");
+            stopWps();
+            g_saveWifiAfterWps = true;
+            delay(10);
+            WiFi.begin();
+            break;
+        case ARDUINO_EVENT_WPS_ER_FAILED:
+            pushLog("WPS fehlgeschl.");
+            stopWps();
+            break;
+        case ARDUINO_EVENT_WPS_ER_TIMEOUT:
+            pushLog("WPS timeout");
+            stopWps();
+            break;
+        case ARDUINO_EVENT_WPS_ER_PBC_OVERLAP:
+            pushLog("WPS overlap");
+            stopWps();
+            break;
+        default:
+            break;
+    }
+}
+
+
+static void startSetupAp() {
+    if (g_wifiAp) return;
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.softAP("M5Dial-123-Setup", "12345678");
+    g_wifiAp = true;
+    pushLog("AP 192.168.4.1");
+}
+
+static void setupWifi() {
+    prefs.begin("net", false);
+    WiFi.onEvent(onWifiEvent);
+    WiFi.setHostname("m5dial-123");
+    WiFi.mode(WIFI_STA);
+
+    String ssid = prefs.getString("ssid", "");
+    String pass = prefs.getString("pass", "");
+    if (ssid.length() > 0) {
+        WiFi.begin(ssid.c_str(), pass.c_str());
+        pushLog("WiFi connect...");
+    } else {
+        startSetupAp();
+    }
+    setupWebGui();
+}
+
+static void maintainWifi() {
+    web.handleClient();
+    if (millis() - g_lastWifiCheck < 5000) return;
+    g_lastWifiCheck = millis();
+
+    if (WiFi.status() == WL_CONNECTED) {
+        static bool announced = false;
+        if (!announced) {
+            announced = true;
+            pushLog("WiFi %s", WiFi.localIP().toString().c_str());
+        }
+        return;
+    }
+
+    if (prefs.getString("ssid", "").length() > 0 && millis() > 20000) {
+        startSetupAp();
+    }
 }
 
 // --- NimBLE callbacks ---
@@ -466,6 +757,11 @@ void setup() {
     pinMode(BTN_PIN, INPUT_PULLUP);
 
     pushLog("Start...");
+    g_fsOk = SPIFFS.begin(true);
+    pushLog("SPIFFS: %s", g_fsOk ? "OK" : "FAIL");
+    ensureLogHeader();
+    setupWifi();
+
     NimBLEDevice::init("M5Dial-NUS");
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
     NimBLEDevice::setMTU(23);
@@ -473,6 +769,7 @@ void setup() {
 }
 
 void loop() {
+    maintainWifi();
     handleButton();
 
     if (doConnect) { doConnect = false; connectBLE(); }
@@ -502,6 +799,7 @@ void loop() {
     if (g_conn && g_rxCnt > 0 && g_rpm > kLogMinRpm && millis() - lastLive >= 500) {
         lastLive = millis();
         printLiveSummary();
+        appendLiveCsv();
     }
 
     drawStatus();
