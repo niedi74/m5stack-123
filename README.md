@@ -218,3 +218,21 @@ verwendet, sondern ein dedizierter CAN-Transceiver.
 ## Lizenz
 
 MIT – Privatprojekt, keine Gewährleistung.
+
+---
+
+## Offizielle M5Dial-Dokumentation
+
+- [M5Dial Hardware, PinMap und Schaltplan](https://docs.m5stack.com/en/core/M5Dial)
+- [M5Dial Arduino Quick Start](https://docs.m5stack.com/en/arduino/m5dial/program)
+- [M5Dial Buzzer API und Beispiel](https://docs.m5stack.com/en/arduino/m5dial/buzzer)
+- [M5Dial offizielle Arduino-Bibliothek](https://github.com/m5stack/M5Dial)
+
+Die offiziellen Dokumente werden verlinkt und nicht als Fremddateien in dieses
+Repository kopiert. Dadurch bleibt die jeweils aktuelle Herstellerfassung die
+Referenz.
+
+## Release-Staende
+
+Die nachpruefbare Entwicklung von Logger, WebGUI und Bedienoberflaeche ist in
+[docs/RELEASES_2026-05-23.md](docs/RELEASES_2026-05-23.md) beschrieben.

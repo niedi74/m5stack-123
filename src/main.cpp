@@ -51,7 +51,11 @@ static const char* TARGET  = "ef:a8:b2:de:e0:9e";
 #define BTN_PIN       42
 #define ENC_A_PIN     41
 #define ENC_B_PIN     40
+#define BUZZER_PIN    3
+#define TOUCH_ADDR    0x38
+#define TOUCH_INT_PIN 14
 #define LONG_PRESS_MS 600
+#define TUNE_HOLD_MS  2000
 
 // --- On-screen log ---
 #define NLOG 6
@@ -76,7 +80,10 @@ static volatile float    g_map   = 0;
 static volatile float    g_cur   = 0;
 static volatile bool     g_conn  = false;
 static volatile uint32_t g_rxCnt = 0;
-static bool              g_view  = false;   // false=ADV/RPM  true=TMP/VLT
+enum UiPage : uint8_t { PAGE_MAIN, PAGE_AUX, PAGE_SETTINGS, PAGE_TUNE, PAGE_COUNT };
+enum BeepKind : uint8_t { BEEP_ACTION, BEEP_BLE, BEEP_ERROR };
+
+static UiPage            g_page = PAGE_MAIN;
 static bool              g_rawlog = false;
 static bool              g_readRequested = false;
 static bool              g_readBusy = false;
@@ -85,6 +92,15 @@ static bool              g_tuneActive = false;
 static int               g_tuneSteps = 0;
 static int8_t            g_encoderAccum = 0;
 static uint32_t          g_lastTuneStepMs = 0;
+static uint32_t          g_tuneArmedAt = 0;
+static uint8_t           g_settingIndex = 0;
+static bool              g_buzzerEnabled = true;
+static bool              g_beepActions = true;
+static bool              g_beepBle = true;
+static bool              g_beepErrors = true;
+static uint8_t           g_brightness = 200;
+static uint32_t          g_beepUntil = 0;
+static bool              g_touchDown = false;
 
 static NimBLEClient* pClient   = nullptr;
 static NimBLERemoteCharacteristic* pNusRx = nullptr;
@@ -93,6 +109,9 @@ static volatile bool  doConnect = false;
 
 static constexpr bool kReadOnConnect = false;  // live mode stays quiet; long press starts read-only dump
 static constexpr float kLogMinRpm = 650.0f;    // suppress ignition/start-only noise in drive logs
+static constexpr int kTuneMaxSteps = 10;       // temporary test correction limit in each direction
+static constexpr uint32_t kTuneArmTimeoutMs = 30000;  // ARM expires unless LIVE is confirmed
+static constexpr uint8_t kBuzzerChannel = 6;
 
 // --- Local logging / Web GUI ---
 static WebServer   web(80);
@@ -389,6 +408,90 @@ static float mapBar() {
     return (float)g_map / 100.0f;
 }
 
+static const char* pageName() {
+    switch (g_page) {
+        case PAGE_AUX: return "T/V";
+        case PAGE_SETTINGS: return "SET";
+        case PAGE_TUNE: return "TUNE";
+        default: return "ADV";
+    }
+}
+
+static void stopBeep() {
+    ledcWriteTone(kBuzzerChannel, 0);
+    g_beepUntil = 0;
+}
+
+static void beep(BeepKind kind) {
+    bool allowed = g_buzzerEnabled;
+    if (kind == BEEP_ACTION) allowed = allowed && g_beepActions;
+    if (kind == BEEP_BLE) allowed = allowed && g_beepBle;
+    if (kind == BEEP_ERROR) allowed = allowed && g_beepErrors;
+    if (!allowed) return;
+
+    uint16_t freq = kind == BEEP_ERROR ? 1800 : (kind == BEEP_BLE ? 5200 : 4200);
+    uint16_t duration = kind == BEEP_ERROR ? 160 : 45;
+    ledcWriteTone(kBuzzerChannel, freq);
+    g_beepUntil = millis() + duration;
+}
+
+static void serviceBuzzer() {
+    if (g_beepUntil != 0 && millis() >= g_beepUntil) stopBeep();
+}
+
+static void saveUiSettings() {
+    prefs.putBool("buzzer", g_buzzerEnabled);
+    prefs.putBool("beep_btn", g_beepActions);
+    prefs.putBool("beep_ble", g_beepBle);
+    prefs.putBool("beep_err", g_beepErrors);
+    prefs.putUChar("bright", g_brightness);
+}
+
+static void loadUiSettings() {
+    g_buzzerEnabled = prefs.getBool("buzzer", true);
+    g_beepActions = prefs.getBool("beep_btn", true);
+    g_beepBle = prefs.getBool("beep_ble", true);
+    g_beepErrors = prefs.getBool("beep_err", true);
+    g_brightness = prefs.getUChar("bright", 200);
+    if (g_brightness < 40) g_brightness = 40;
+    display.setBrightness(g_brightness);
+}
+
+static void advancePage() {
+    if (g_page == PAGE_TUNE && g_tuneActive) {
+        beep(BEEP_ERROR);
+        return;
+    }
+    UiPage oldPage = g_page;
+    g_page = static_cast<UiPage>((static_cast<uint8_t>(g_page) + 1) % PAGE_COUNT);
+    if (oldPage == PAGE_TUNE && g_tuneArmed && !g_tuneActive) {
+        g_tuneArmed = false;
+        g_tuneArmedAt = 0;
+        pushLog("Tune ARM verworfen");
+    }
+    beep(BEEP_ACTION);
+}
+
+static bool readTouchPressed() {
+    uint8_t points = 0;
+    Wire.beginTransmission(TOUCH_ADDR);
+    Wire.write(0x02);  // FT3267 touch-point count.
+    if (Wire.endTransmission(false) != 0) return false;
+    if (Wire.requestFrom((int)TOUCH_ADDR, 1) != 1) return false;
+    points = Wire.read() & 0x0F;
+    return points > 0;
+}
+
+static void handleTouch() {
+    static uint32_t lastPoll = 0;
+    if (millis() - lastPoll < 40) return;
+    lastPoll = millis();
+
+    bool down = readTouchPressed();
+    if (down && !g_touchDown) advancePage();
+    g_touchDown = down;
+}
+
 static void ensureLogHeader() {
     if (!g_fsOk) return;
     bool needsHeader = !SPIFFS.exists(LOG_FILE);
@@ -494,11 +597,11 @@ static void handleRoot() {
     String mode = WiFi.status() == WL_CONNECTED ? "Home WiFi" : "Setup AP";
     String timeText = localTimestamp();
     String html;
-    html.reserve(6200);
+    html.reserve(10200);
     html += "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>";
     html += "<title>M5Dial 123Tune</title><style>";
     html += "body{font-family:system-ui,Segoe UI,Arial;margin:24px;background:#111;color:#eee}";
-    html += ".layout{display:grid;grid-template-columns:minmax(320px,700px) minmax(320px,590px);gap:22px;align-items:start}.mirrors{display:flex;gap:18px;flex-wrap:wrap}.side{min-width:0}@media(max-width:920px){.layout{display:block}.mirrors{display:block}}";
+    html += ".layout{display:grid;grid-template-columns:minmax(320px,700px) minmax(320px,590px);gap:22px;align-items:start}.mirrors{display:grid;grid-template-columns:repeat(2,minmax(270px,320px));gap:18px}.side{min-width:0}@media(max-width:1080px){.layout{display:block}}@media(max-width:680px){.mirrors{display:block}}";
     html += "a,button{display:inline-block;margin:6px 8px 6px 0;padding:10px 12px;background:#e94b1b;color:white;text-decoration:none;border:0;border-radius:4px}";
     html += "input{display:block;margin:6px 0 12px;padding:10px;width:min(360px,90vw)}";
     html += ".muted{color:#aaa}.box{border:1px solid #333;padding:14px;margin:0 0 14px;max-width:560px}";
@@ -508,6 +611,7 @@ static void handleRoot() {
     html += ".map{position:absolute;top:162px;left:0;right:0;text-align:center;font-size:28px;font-weight:800;color:#46b9ff}.maplbl{position:absolute;top:193px;left:0;right:0;text-align:center;color:#888;font-size:14px;font-weight:700}";
     html += ".rpm{position:absolute;bottom:30px;left:0;right:0;text-align:center;font-size:44px;font-weight:800;color:#fff}.rpmlbl{position:absolute;bottom:14px;left:0;right:0;text-align:center;color:#888;font-size:14px;font-weight:700}";
     html += ".big1{position:absolute;top:82px;left:0;right:0;text-align:center;font-size:58px;line-height:1;font-weight:800}.lbl1{position:absolute;top:138px;left:0;right:0;text-align:center;color:#ddd;font-size:16px;font-weight:800}.big2{position:absolute;top:174px;left:0;right:0;text-align:center;font-size:58px;line-height:1;font-weight:800}.lbl2{position:absolute;top:230px;left:0;right:0;text-align:center;color:#ddd;font-size:16px;font-weight:800}";
+    html += ".screen-title{position:absolute;top:54px;left:0;right:0;text-align:center;font-size:22px;font-weight:800;color:#efefef}.items{position:absolute;top:92px;left:45px;right:42px;font-size:15px;font-weight:700;line-height:2}.item{display:flex;justify-content:space-between;color:#888}.item.sel{color:#f39c12}.on{color:#35d46b}.off{color:#777}.warn{color:#ff453a}.safe{color:#ffab19}.tunestate{position:absolute;top:92px;left:0;right:0;text-align:center;font-size:27px;font-weight:800}.tunehelp{position:absolute;top:128px;left:30px;right:30px;text-align:center;color:#aaa;font-size:13px;font-weight:700}.tunestep{position:absolute;top:164px;left:0;right:0;text-align:center;font-size:56px;font-weight:800}.tunemetric{position:absolute;bottom:28px;left:0;right:0;text-align:center;color:#aaa;font-size:14px;font-weight:700}";
     html += ".hidden{display:none}";
     html += ".red{color:#ff3838}.blue{color:#3aa0ff}.orange{color:#f39c12}";
     html += "</style></head><body><h2>M5Dial 123Tune</h2><div class='layout'><div class='mirrors'>";
@@ -522,7 +626,19 @@ static void handleRoot() {
     html += "<div class='top'><span id='ble2' class='ble'>BLE</span><span id='ign2' class='ign'>IGN #0</span><span class='mode'>T/V</span></div>";
     html += "<div id='aux1' class='big1' style='color:#00ffff'>0</div><div class='lbl1'>TEMP&nbsp; degC</div>";
     html += "<div id='aux2' class='big2' style='color:#ffff00'>0.0</div><div class='lbl2'>VOLT&nbsp; V</div>";
-    html += "</div></div><div class='side'>";
+    html += "</div>";
+    html += "<div class='dial'><div class='top'><span id='ble3' class='ble'>BLE</span><span id='ign3' class='ign'>IGN #0</span><span class='mode'>SET</span></div>";
+    html += "<div class='screen-title'>SETTINGS</div><div class='items'>";
+    html += "<div id='set0' class='item'><span>Buzzer</span><span id='buzz' class='on'>ON</span></div>";
+    html += "<div id='set1' class='item'><span>Button tone</span><span id='btnbeep' class='on'>ON</span></div>";
+    html += "<div id='set2' class='item'><span>BLE tone</span><span id='blebeep' class='on'>ON</span></div>";
+    html += "<div id='set3' class='item'><span>Error tone</span><span id='errbeep' class='on'>ON</span></div>";
+    html += "<div id='set4' class='item'><span>Brightness</span><span id='bright'>200</span></div></div></div>";
+    html += "<div class='dial'><div class='top'><span id='ble4' class='ble'>BLE</span><span id='ign4' class='ign'>IGN #0</span><span class='mode warn'>TUNE</span></div>";
+    html += "<div class='screen-title warn'>LIVE TUNE</div><div id='tunestate' class='tunestate safe'>LOCKED</div>";
+    html += "<div id='tunehelp' class='tunehelp'>Hold on device 2s to ARM</div><div id='tunestep' class='tunestep orange'>+0</div>";
+    html += "<div id='tunemetric' class='tunemetric'>ADV 0.0 deg | RPM 0</div></div>";
+    html += "</div><div class='side'>";
     html += "<div class='box'><div>Mode: " + mode + "</div><div>IP: " + ip + "</div>";
     html += "<div>Time: " + timeText + " (" + String(g_timeValid ? g_timeSource : "boot") + ")</div>";
     html += "<div>GW: " + WiFi.gatewayIP().toString() + " / DNS: " + WiFi.dnsIP().toString() + "</div>";
@@ -540,17 +656,25 @@ static void handleRoot() {
     html += "<input name='ssid' placeholder='SSID'><input name='pass' placeholder='Password' type='password'>";
     html += "<button type='submit'>Save WiFi and reboot</button></form>";
     html += "<a href='/wps'>Start WPS</a>";
-    html += "<p class='muted'>WPS: first click Start WPS here, then press Connect/WPS on the FRITZ!Box.</p></div></div></div>";
+    html += "<p class='muted'>WPS: first click Start WPS here, then press Connect/WPS on the FRITZ!Box.</p>";
+    html += "<p class='muted'>Setup AP fallback: connect to M5Dial-123-Setup (DHCP automatic, no static client IP required), then open 192.168.4.1.</p></div></div></div>";
     html += "<script>";
     html += "function c(s){return s>0?'red':s<0?'blue':'orange'}";
+    html += "function yn(id,on){let e=document.getElementById(id);e.textContent=on?'ON':'OFF';e.className=on?'on':'off'}";
     html += "function paint(d){if(!d)return;";
     html += "mode.textContent=d.tune_active?('T'+(d.tune_steps>=0?'+':'')+d.tune_steps):'ADV';";
     html += "adv.textContent=Number(d.adv).toFixed(1);adv.className='adv '+c(d.tune_steps);";
     html += "tunelbl.textContent=d.tune_active?('TUNE '+(d.tune_steps>=0?'+':'')+d.tune_steps):'ADVANCE  deg';tunelbl.className='tunelbl '+c(d.tune_steps);";
-    html += "map.textContent=Number(d.map_bar).toFixed(2);rpm.textContent=d.rpm;aux1.textContent=d.temp;aux2.textContent=Number(d.volt).toFixed(1);}";
+    html += "map.textContent=Number(d.map_bar).toFixed(2);rpm.textContent=d.rpm;aux1.textContent=d.temp;aux2.textContent=Number(d.volt).toFixed(1);";
+    html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);bright.textContent=d.brightness;";
+    html += "for(let i=0;i<5;i++)document.getElementById('set'+i).className='item '+(i==d.setting_index?'sel':'');";
+    html += "let st=d.tune_active?'LIVE':(d.tune_armed?'ARMED':'LOCKED');tunestate.textContent=st;tunestate.className='tunestate '+(d.tune_active?'warn':(d.tune_armed?'safe':'off'));";
+    html += "tunehelp.textContent=d.tune_active?'Rotate on device +/-; hold 2s to EXIT':(d.tune_armed?'Hold on device 2s to START':'Hold on device 2s to ARM');";
+    html += "tunestep.textContent=(d.tune_steps>=0?'+':'')+d.tune_steps;tunestep.className='tunestep '+c(d.tune_steps);tunemetric.textContent='ADV '+Number(d.adv).toFixed(1)+' deg | RPM '+d.rpm;}";
     html += "async function upd(){try{let r=await fetch('/state',{cache:'no-store'});let d=await r.json();";
     html += "ble.textContent=d.ble?'BLE OK':'Suche...';ble.style.color=d.ble?'#1ec85a':'#e33';";
-    html += "ble2.textContent=ble.textContent;ble2.style.color=ble.style.color;ign.textContent='IGN #'+d.rx;ign2.textContent=ign.textContent;paint(d);}catch(e){}}";
+    html += "ble2.textContent=ble.textContent;ble2.style.color=ble.style.color;ble3.textContent=ble.textContent;ble3.style.color=ble.style.color;ble4.textContent=ble.textContent;ble4.style.color=ble.style.color;";
+    html += "ign.textContent='IGN #'+d.rx;ign2.textContent=ign.textContent;ign3.textContent=ign.textContent;ign4.textContent=ign.textContent;paint(d);}catch(e){}}";
     html += "upd();setInterval(upd,2000);</script>";
     html += "</body></html>";
     web.send(200, "text/html", html);
@@ -558,10 +682,10 @@ static void handleRoot() {
 
 static void handleState() {
     String json;
-    json.reserve(260);
+    json.reserve(420);
     json += "{";
     json += "\"ble\":" + String(g_conn ? "true" : "false") + ",";
-    json += "\"view\":" + String(g_view ? "true" : "false") + ",";
+    json += "\"page\":\"" + String(pageName()) + "\",";
     json += "\"rx\":" + String((unsigned long)g_rxCnt) + ",";
     json += "\"rpm\":" + String((int)g_rpm) + ",";
     json += "\"adv\":" + String((float)g_adv, 1) + ",";
@@ -571,7 +695,13 @@ static void handleState() {
     json += "\"volt\":" + String((float)g_vlt, 1) + ",";
     json += "\"tune_armed\":" + String(g_tuneArmed ? "true" : "false") + ",";
     json += "\"tune_active\":" + String(g_tuneActive ? "true" : "false") + ",";
-    json += "\"tune_steps\":" + String(g_tuneSteps);
+    json += "\"tune_steps\":" + String(g_tuneSteps) + ",";
+    json += "\"buzzer\":" + String(g_buzzerEnabled ? "true" : "false") + ",";
+    json += "\"beep_actions\":" + String(g_beepActions ? "true" : "false") + ",";
+    json += "\"beep_ble\":" + String(g_beepBle ? "true" : "false") + ",";
+    json += "\"beep_errors\":" + String(g_beepErrors ? "true" : "false") + ",";
+    json += "\"brightness\":" + String(g_brightness);
+    json += ",\"setting_index\":" + String(g_settingIndex);
     json += "}";
     web.send(200, "application/json", json);
 }
@@ -735,6 +865,7 @@ static void startSetupAp() {
 
 static void setupWifi() {
     prefs.begin("net", false);
+    loadUiSettings();
     WiFi.onEvent(onWifiEvent);
     WiFi.setHostname("m5dial-123");
     WiFi.mode(WIFI_STA);
@@ -884,7 +1015,9 @@ static void handleSerialCommand(String line) {
 
     if (line.equalsIgnoreCase("tune_arm")) {
         g_tuneArmed = true;
-        pushLog("Tune ARM");
+        g_tuneArmedAt = millis();
+        g_page = PAGE_TUNE;
+        pushLog("Tune ARM 30s");
         Serial.println("[TUNE] armed. use tune_on, tune_up, tune_down, tune_zero, tune_off");
         return;
     }
@@ -892,6 +1025,7 @@ static void handleSerialCommand(String line) {
     if (line.equalsIgnoreCase("tune_disarm")) {
         if (g_tuneActive) tuneSendToggle();
         g_tuneArmed = false;
+        g_tuneArmedAt = 0;
         g_tuneSteps = 0;
         pushLog("Tune DISARM");
         Serial.println("[TUNE] disarmed");
@@ -899,6 +1033,7 @@ static void handleSerialCommand(String line) {
     }
 
     if (line.equalsIgnoreCase("tune_on")) {
+        g_page = PAGE_TUNE;
         if (!g_tuneActive) tuneSendToggle();
         return;
     }
@@ -1014,6 +1149,7 @@ class ClientCB : public NimBLEClientCallbacks {
     void onConnect(NimBLEClient*) override {
         g_conn = true;
         pushLog("Verbunden!");
+        beep(BEEP_BLE);
         logConnInfo("Conn");
     }
     void onDisconnect(NimBLEClient*, int reason) override {
@@ -1021,6 +1157,7 @@ class ClientCB : public NimBLEClientCallbacks {
         g_rxCnt = 0;
         pNusRx  = nullptr;
         pushLog("Disc reason=%d", reason);
+        beep(BEEP_ERROR);
         startScan();
     }
     bool onConnParamsUpdateRequest(NimBLEClient*, const ble_gap_upd_params* p) override {
@@ -1114,6 +1251,7 @@ static bool sendRaytacCommandChecked(const char* command) {
 static bool tuneSendToggle() {
     if (!g_tuneArmed) {
         pushLog("Tune gesperrt");
+        beep(BEEP_ERROR);
         return false;
     }
     if (!sendRaytacCommandChecked("T")) return false;
@@ -1121,8 +1259,10 @@ static bool tuneSendToggle() {
     if (g_tuneActive) {
         g_tuneSteps = 0;
         pushLog("Tune EIN");
+        beep(BEEP_ERROR);
     } else {
         pushLog("Tune AUS");
+        beep(BEEP_ACTION);
     }
     return true;
 }
@@ -1130,6 +1270,13 @@ static bool tuneSendToggle() {
 static bool tuneStep(int dir) {
     if (!g_tuneArmed || !g_tuneActive) {
         pushLog("Tune nicht aktiv");
+        beep(BEEP_ERROR);
+        return false;
+    }
+    if ((dir > 0 && g_tuneSteps >= kTuneMaxSteps) ||
+        (dir < 0 && g_tuneSteps <= -kTuneMaxSteps)) {
+        pushLog("Tune Limit %+d", g_tuneSteps);
+        beep(BEEP_ERROR);
         return false;
     }
     if (millis() - g_lastTuneStepMs < 150) return false;
@@ -1139,6 +1286,7 @@ static bool tuneStep(int dir) {
     if (!sendRaytacCommandChecked(cmd)) return false;
     g_tuneSteps += dir > 0 ? 1 : -1;
     pushLog("Tune %+d", g_tuneSteps);
+    beep(BEEP_ACTION);
     return true;
 }
 
@@ -1284,7 +1432,7 @@ static void drawStatus() {
         display.drawString(tuneBuf, 184, 27);
     } else {
         display.setTextColor(g_tuneArmed ? (uint32_t)TFT_ORANGE : (uint32_t)0x303030);
-        display.drawString(g_view ? "T/V" : "ADV", 184, 27);
+        display.drawString(pageName(), 184, 27);
     }
 }
 
@@ -1369,6 +1517,94 @@ static void drawAux() {
     drawHalf(sprBot, buf, "VOLT  V", TFT_YELLOW, 140);
 }
 
+static void drawSettings() {
+    const char* labels[] = { "Buzzer", "Button tone", "BLE tone", "Error tone", "Brightness" };
+    bool values[] = { g_buzzerEnabled, g_beepActions, g_beepBle, g_beepErrors };
+    display.fillRect(0, 44, 240, 196, TFT_BLACK);
+    display.setTextDatum(MC_DATUM);
+    display.setFont(&fonts::FreeSans12pt7b);
+    display.setTextColor(TFT_WHITE);
+    display.drawString("SETTINGS", 120, 58);
+
+    display.setFont(&fonts::FreeSans9pt7b);
+    for (uint8_t i = 0; i < 5; ++i) {
+        int y = 92 + i * 27;
+        display.setTextDatum(ML_DATUM);
+        display.setTextColor(i == g_settingIndex ? (uint32_t)TFT_ORANGE : (uint32_t)TFT_DARKGREY);
+        display.drawString(i == g_settingIndex ? ">" : " ", 25, y);
+        display.drawString(labels[i], 43, y);
+        display.setTextDatum(MR_DATUM);
+        char value[8];
+        if (i < 4) {
+            snprintf(value, sizeof(value), "%s", values[i] ? "ON" : "OFF");
+            display.setTextColor(values[i] ? (uint32_t)TFT_GREEN : (uint32_t)TFT_DARKGREY);
+        } else {
+            snprintf(value, sizeof(value), "%u", g_brightness);
+            display.setTextColor(TFT_SKYBLUE);
+        }
+        display.drawString(value, 208, y);
+    }
+}
+
+static void drawTune() {
+    display.fillRect(0, 44, 240, 196, TFT_BLACK);
+    display.setTextDatum(MC_DATUM);
+    display.setFont(&fonts::FreeSans12pt7b);
+    display.setTextColor(TFT_RED);
+    display.drawString("LIVE TUNE", 120, 58);
+
+    const char* state = g_tuneActive ? "LIVE" : (g_tuneArmed ? "ARMED" : "LOCKED");
+    uint32_t stateColor = g_tuneActive ? (uint32_t)TFT_RED :
+                          g_tuneArmed ? (uint32_t)TFT_ORANGE :
+                                        (uint32_t)TFT_DARKGREY;
+    display.setFont(&fonts::Font4);
+    display.setTextColor(stateColor);
+    display.drawString(state, 120, 92);
+
+    display.setFont(&fonts::FreeSans9pt7b);
+    display.setTextColor(TFT_DARKGREY);
+    display.drawString(g_tuneActive ? "DREHEN +/-  HOLD EXIT" :
+                       (g_tuneArmed ? "HOLD 2s START" : "HOLD 2s ARM"), 120, 118);
+
+    char buf[18];
+    snprintf(buf, sizeof(buf), "%+d", g_tuneSteps);
+    display.setFont(&fonts::Font7);
+    display.setTextColor(g_tuneSteps > 0 ? (uint32_t)TFT_RED :
+                         g_tuneSteps < 0 ? (uint32_t)TFT_SKYBLUE :
+                                           (uint32_t)TFT_ORANGE);
+    display.drawString(buf, 120, 160);
+    snprintf(buf, sizeof(buf), "ADV %.1f   RPM %d", (float)g_adv, (int)g_rpm);
+    display.setFont(&fonts::FreeSans9pt7b);
+    display.setTextColor(TFT_DARKGREY);
+    display.drawString(buf, 120, 215);
+}
+
+static void changeSettingSelection(int dir) {
+    int next = static_cast<int>(g_settingIndex) + dir;
+    if (next < 0) next = 4;
+    if (next > 4) next = 0;
+    g_settingIndex = static_cast<uint8_t>(next);
+    beep(BEEP_ACTION);
+}
+
+static void activateSetting() {
+    switch (g_settingIndex) {
+        case 0:
+            g_buzzerEnabled = !g_buzzerEnabled;
+            if (!g_buzzerEnabled) stopBeep();
+            break;
+        case 1: g_beepActions = !g_beepActions; break;
+        case 2: g_beepBle = !g_beepBle; break;
+        case 3: g_beepErrors = !g_beepErrors; break;
+        case 4:
+            g_brightness = g_brightness < 120 ? 140 : (g_brightness < 180 ? 200 : (g_brightness < 230 ? 255 : 80));
+            display.setBrightness(g_brightness);
+            break;
+    }
+    saveUiSettings();
+    if (g_buzzerEnabled) beep(BEEP_ACTION);
+}
+
 static void handleEncoder() {
     static uint8_t lastState = 0;
     static bool initialized = false;
@@ -1395,14 +1631,16 @@ static void handleEncoder() {
     g_encoderAccum += delta;
     if (g_encoderAccum >= 4) {
         g_encoderAccum = 0;
-        if (g_tuneActive) tuneStep(1);
+        if (g_page == PAGE_SETTINGS) changeSettingSelection(1);
+        else if (g_page == PAGE_TUNE && g_tuneActive) tuneStep(1);
     } else if (g_encoderAccum <= -4) {
         g_encoderAccum = 0;
-        if (g_tuneActive) tuneStep(-1);
+        if (g_page == PAGE_SETTINGS) changeSettingSelection(-1);
+        else if (g_page == PAGE_TUNE && g_tuneActive) tuneStep(-1);
     }
 }
 
-// --- Button: short = view, long = read-only dump ---
+// Short press pages through the UI; long press acts only within the visible context.
 static void handleButton() {
     static bool     lastBtn   = HIGH;
     static uint32_t pressTime = 0;
@@ -1410,17 +1648,35 @@ static void handleButton() {
 
     bool btn = digitalRead(BTN_PIN);
     if (btn == LOW && lastBtn == HIGH) { pressTime = millis(); longFired = false; }
-    if (btn == LOW && !longFired && millis() - pressTime >= LONG_PRESS_MS) {
+    uint32_t holdMs = g_page == PAGE_TUNE ? TUNE_HOLD_MS : LONG_PRESS_MS;
+    if (btn == LOW && !longFired && millis() - pressTime >= holdMs) {
         longFired = true;
-        if (g_tuneArmed) {
-            tuneSendToggle();
+        if (g_page == PAGE_SETTINGS) {
+            activateSetting();
+        } else if (g_page == PAGE_TUNE) {
+            if (g_tuneActive) {
+                tuneZero();
+                if (g_tuneSteps == 0 && tuneSendToggle()) {
+                    g_tuneArmed = false;
+                    g_tuneArmedAt = 0;
+                    pushLog("Tune SAFE EXIT");
+                }
+            } else if (!g_tuneArmed) {
+                g_tuneArmed = true;
+                g_tuneArmedAt = millis();
+                pushLog("Tune ARM 30s");
+                beep(BEEP_ERROR);
+            } else if (tuneSendToggle()) {
+                g_tuneArmedAt = 0;
+            }
         } else {
             g_readRequested = true;
             pushLog("Read angefragt");
+            beep(BEEP_ACTION);
         }
     }
     if (btn == HIGH && lastBtn == LOW && !longFired) {
-        g_view = !g_view;
+        advancePage();
     }
     lastBtn = btn;
 }
@@ -1437,7 +1693,7 @@ void setup() {
     display.init();
     display.setRotation(2);
     display.fillScreen(TFT_BLACK);
-    display.setBrightness(200);
+    display.setBrightness(g_brightness);
 
     sprTop.createSprite(240, 102);
     sprBot.createSprite(240, 102);
@@ -1445,6 +1701,10 @@ void setup() {
     pinMode(BTN_PIN, INPUT_PULLUP);
     pinMode(ENC_A_PIN, INPUT_PULLUP);
     pinMode(ENC_B_PIN, INPUT_PULLUP);
+    pinMode(TOUCH_INT_PIN, INPUT_PULLUP);
+    ledcSetup(kBuzzerChannel, 4000, 8);
+    ledcAttachPin(BUZZER_PIN, kBuzzerChannel);
+    stopBeep();
 
     pushLog("Start...");
     setupRtcTime();
@@ -1462,8 +1722,18 @@ void setup() {
 void loop() {
     pollSerialCommands();
     maintainWifi();
+    serviceBuzzer();
     handleEncoder();
     handleButton();
+    handleTouch();
+
+    if (g_tuneArmed && !g_tuneActive && g_tuneArmedAt != 0 &&
+        millis() - g_tuneArmedAt >= kTuneArmTimeoutMs) {
+        g_tuneArmed = false;
+        g_tuneArmedAt = 0;
+        pushLog("Tune ARM timeout");
+        beep(BEEP_ERROR);
+    }
 
     if (doConnect) { doConnect = false; connectBLE(); }
 
@@ -1496,10 +1766,16 @@ void loop() {
     }
 
     drawStatus();
-    if (g_rxCnt == 0) {
+    if (g_rxCnt == 0 && (g_page == PAGE_MAIN || g_page == PAGE_AUX)) {
         drawLog();
+    } else if (g_page == PAGE_MAIN) {
+        drawMain();
+    } else if (g_page == PAGE_AUX) {
+        drawAux();
+    } else if (g_page == PAGE_SETTINGS) {
+        drawSettings();
     } else {
-        g_view ? drawAux() : drawMain();
+        drawTune();
     }
 
     delay(80);
