@@ -112,6 +112,10 @@ static constexpr float kLogMinRpm = 650.0f;    // suppress ignition/start-only n
 static constexpr int kTuneMaxSteps = 10;       // temporary test correction limit in each direction
 static constexpr uint32_t kTuneArmTimeoutMs = 30000;  // ARM expires unless LIVE is confirmed
 static constexpr uint8_t kBuzzerChannel = 6;
+static constexpr uint32_t kScanWindowMs = 10000;
+static constexpr uint32_t kScanPauseMs[] = { 5000, 10000, 20000, 30000 };
+static uint8_t g_scanPauseIndex = 0;
+static uint32_t g_nextScanAt = 0;
 
 // --- Local logging / Web GUI ---
 static WebServer   web(80);
@@ -1145,9 +1149,26 @@ static void pollSerialCommands() {
 // --- NimBLE callbacks ---
 static void startScan();
 
+static void resetScanBackoff() {
+    g_scanPauseIndex = 0;
+    g_nextScanAt = 0;
+}
+
+static void scheduleScanRetry() {
+    uint8_t idx = min(g_scanPauseIndex,
+                      static_cast<uint8_t>((sizeof(kScanPauseMs) / sizeof(kScanPauseMs[0])) - 1));
+    uint32_t pauseMs = kScanPauseMs[idx];
+    if (g_scanPauseIndex < (sizeof(kScanPauseMs) / sizeof(kScanPauseMs[0])) - 1) {
+        g_scanPauseIndex++;
+    }
+    g_nextScanAt = millis() + pauseMs;
+    pushLog("Scan Pause %lus", (unsigned long)(pauseMs / 1000));
+}
+
 class ClientCB : public NimBLEClientCallbacks {
     void onConnect(NimBLEClient*) override {
         g_conn = true;
+        resetScanBackoff();
         pushLog("Verbunden!");
         beep(BEEP_BLE);
         logConnInfo("Conn");
@@ -1175,11 +1196,17 @@ class ScanCB : public NimBLEScanCallbacks {
         String addr = dev->getAddress().toString().c_str();
         addr.toLowerCase();
         if (addr == TARGET) {
-            NimBLEDevice::getScan()->stop();
             targetAddr = dev->getAddress();
             doConnect  = true;
+            resetScanBackoff();
+            NimBLEDevice::getScan()->stop();
             pushLog("Gefunden!");
         }
+    }
+    void onScanEnd(const NimBLEScanResults&, int reason) override {
+        if (g_conn || doConnect) return;
+        pushLog("Scan Ende r=%d", reason);
+        scheduleScanRetry();
     }
 };
 
@@ -1187,13 +1214,25 @@ static ClientCB clientCB;
 static ScanCB   scanCB;
 
 static void startScan() {
-    pushLog("Scan...");
+    if (g_conn || doConnect) return;
+    g_nextScanAt = 0;
+    pushLog("Scan 10s...");
     auto* s = NimBLEDevice::getScan();
     s->setScanCallbacks(&scanCB);
     s->setActiveScan(true);
     s->setInterval(100);
     s->setWindow(99);
-    s->start(0, false);
+    if (!s->start(kScanWindowMs, false)) {
+        pushLog("Scan Start FAIL");
+        scheduleScanRetry();
+    }
+}
+
+static void serviceScanRetry() {
+    if (g_conn || doConnect || g_nextScanAt == 0) return;
+    if (static_cast<int32_t>(millis() - g_nextScanAt) >= 0) {
+        startScan();
+    }
 }
 
 // Notify handler: receives every notification regardless of characteristic
@@ -1334,7 +1373,7 @@ static void connectBLE() {
     pClient->setConnectionParams(16, 32, 0, 400);
     if (!pClient->connect(targetAddr, true, false, false)) {
         pushLog("Conn FAIL");
-        startScan(); return;
+        scheduleScanRetry(); return;
     }
     logConnInfo("PostConnect");
     delay(750);
@@ -1723,6 +1762,7 @@ void loop() {
     pollSerialCommands();
     maintainWifi();
     serviceBuzzer();
+    serviceScanRetry();
     handleEncoder();
     handleButton();
     handleTouch();
