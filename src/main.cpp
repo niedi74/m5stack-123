@@ -532,7 +532,7 @@ static bool readTouchPressed() {
 }
 
 static void handleTouch() {
-    if (!g_touchNavigation) {
+    if (!g_demoMode && !g_touchNavigation) {
         g_touchDown = false;
         return;
     }
@@ -541,7 +541,10 @@ static void handleTouch() {
     lastPoll = millis();
 
     bool down = readTouchPressed();
-    if (down && !g_touchDown) toggleDrivePageFromTouch();
+    if (down && !g_touchDown) {
+        if (g_demoMode) advancePage();
+        else toggleDrivePageFromTouch();
+    }
     g_touchDown = down;
 }
 
@@ -662,6 +665,8 @@ static bool wifiSetupBlockedWhileDriving() {
     return !g_demoMode && g_rpm > kLogMinRpm;
 }
 
+static void handleUiSetting();
+
 static void handleRoot() {
     String ip = wifiIpLabel();
     String mode = wifiModeLabel();
@@ -672,7 +677,7 @@ static void handleRoot() {
     String tuneState = g_tuneActive ? (g_demoMode ? "SIM LIVE" : "LIVE") :
                        (g_tuneArmed ? (g_demoMode ? "SIM ARMED" : "ARMED") : "LOCKED");
     String html;
-    html.reserve(10200);
+    html.reserve(12500);
     html += "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>";
     html += "<title>M5Dial 123Tune</title><style>";
     html += "body{font-family:system-ui,Segoe UI,Arial;margin:24px;background:#111;color:#eee}";
@@ -680,6 +685,7 @@ static void handleRoot() {
     html += "a,button{display:inline-block;margin:6px 8px 6px 0;padding:10px 12px;background:#e94b1b;color:white;text-decoration:none;border:0;border-radius:4px}";
     html += "input{display:block;margin:6px 0 12px;padding:10px;width:min(360px,90vw)}";
     html += ".muted{color:#aaa}.box{border:1px solid #333;padding:14px;margin:0 0 14px;max-width:560px}";
+    html += ".controls{display:grid;gap:10px;max-width:400px}.toggle-row,.select-row{display:flex;align-items:center;justify-content:space-between;gap:18px}.toggle-row input{width:22px;height:22px;margin:0;padding:0;accent-color:#e94b1b}.slider-row{display:grid;gap:4px}.slider-row span{display:flex;justify-content:space-between}.slider-row input{box-sizing:border-box;width:100%;margin:0;padding:0;accent-color:#e94b1b}.select-row select{padding:7px 9px;background:#1c1c1c;color:#eee;border:1px solid #444;border-radius:4px}.ui-result{min-height:20px;margin:0;color:#e94b1b}";
     html += ".dial{width:min(82vw,320px);aspect-ratio:1;border-radius:50%;background:#050505;margin:4px 0 18px;position:relative;border:10px solid #242424;box-shadow:inset 0 0 38px #1d2830,0 0 16px #000;color:#ddd;overflow:hidden}";
     html += ".top{position:absolute;top:28px;left:0;right:0;font-size:14px;font-weight:700}.ble{position:absolute;left:72px;color:#2577ff}.ign{position:absolute;left:72px;top:16px;color:#e93b2f}.mode{position:absolute;right:72px;color:#3e75ff}";
     html += ".adv{position:absolute;top:76px;left:0;right:0;text-align:center;font-size:58px;line-height:1;font-weight:800;color:#f39c12}.lbl{font-size:14px;color:#ccc;font-weight:700;letter-spacing:0}.tunelbl{position:absolute;top:135px;left:0;right:0;text-align:center;font-size:16px;font-weight:800;color:#f39c12}";
@@ -723,6 +729,16 @@ static void handleRoot() {
     html += "<div>RTC: " + String(g_rtcOk ? (g_rtcValid ? "valid" : "seen") : "missing") + " / NTP polls: " + String(g_ntpPolls) + "</div>";
     html += "<div>BLE: " + String(g_demoMode ? "DEMO - no device TX" : (g_conn ? "connected" : "searching")) + "</div>";
     html += "<div>RPM: " + String((int)g_rpm) + " / ADV: " + String((float)g_adv, 1) + " / MAP: " + String(mapBar(), 2) + " bar</div></div>";
+    html += "<div class='box'><h3>Controls</h3><div class='controls'>";
+    html += "<label class='toggle-row'><span>Buzzer</span><input id='ctl_buzzer' type='checkbox' onchange=\"setFlag('buzzer',this.checked)\"></label>";
+    html += "<label class='toggle-row'><span>Button tone</span><input id='ctl_button' type='checkbox' onchange=\"setFlag('beep_actions',this.checked)\"></label>";
+    html += "<label class='toggle-row'><span>BLE tone</span><input id='ctl_ble' type='checkbox' onchange=\"setFlag('beep_ble',this.checked)\"></label>";
+    html += "<label class='toggle-row'><span>Error tone</span><input id='ctl_error' type='checkbox' onchange=\"setFlag('beep_errors',this.checked)\"></label>";
+    html += "<label class='toggle-row'><span>Touch nav</span><input id='ctl_touch' type='checkbox' onchange=\"setFlag('touch_nav',this.checked)\"></label>";
+    html += "<label class='toggle-row'><span>Demo mode</span><input id='ctl_demo' type='checkbox' onchange=\"setFlag('demo',this.checked)\"></label>";
+    html += "<label class='slider-row'><span>Brightness <output id='ctl_bright_value'>" + String(g_brightness) + "</output></span><input id='ctl_bright' type='range' min='40' max='255' step='5' value='" + String(g_brightness) + "' onchange=\"setUi('brightness',this.value)\"></label>";
+    html += "<label class='select-row'><span>Rotation</span><select id='ctl_rotation' onchange=\"setUi('rotation',this.value)\"><option value='0'>0 deg</option><option value='90'>90 deg</option><option value='180'>180 deg</option><option value='270'>270 deg</option></select></label>";
+    html += "<p id='ui_result' class='ui-result'></p></div></div>";
     html += "<div class='box'><h3>Time</h3>";
     html += "<button onclick=\"fetch('/time_set?epoch='+Math.floor(Date.now()/1000)).then(()=>location.reload())\">Sync from browser</button>";
     html += "<p class='muted'>Uses this phone/laptop clock and stores it in the M5Dial RTC.</p></div>";
@@ -739,12 +755,16 @@ static void handleRoot() {
     html += "<script>";
     html += "function c(s){return s>0?'red':s<0?'blue':'orange'}";
     html += "function yn(id,on){let e=document.getElementById(id);e.textContent=on?'ON':'OFF';e.className=on?'on':'off'}";
+    html += "async function setUi(setting,value){let e=document.getElementById('ui_result');try{let r=await fetch('/ui?setting='+encodeURIComponent(setting)+'&value='+encodeURIComponent(value),{method:'POST'});let t=await r.text();e.textContent=r.ok?'Saved':t;await upd();}catch(x){e.textContent='Connection failed';await upd();}}";
+    html += "function setFlag(setting,on){setUi(setting,on?'1':'0')}";
     html += "function paint(d){if(!d)return;";
     html += "mode.textContent=d.tune_active?('T'+(d.tune_steps>=0?'+':'')+d.tune_steps):'ADV';";
     html += "adv.textContent=Number(d.adv).toFixed(1);adv.className='adv '+c(d.tune_steps);";
     html += "tunelbl.textContent=d.tune_active?('TUNE '+(d.tune_steps>=0?'+':'')+d.tune_steps):'ADVANCE  deg';tunelbl.className='tunelbl '+c(d.tune_steps);";
     html += "map.textContent=Number(d.map_bar).toFixed(2);rpm.textContent=d.rpm;aux1.textContent=d.temp;aux2.textContent=Number(d.volt).toFixed(1);";
     html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);yn('demomode',d.demo);if(d.demo)demomode.className='demo';bright.textContent=d.brightness;rotation.textContent=d.rotation_deg+' deg';";
+    html += "ctl_buzzer.checked=d.buzzer;ctl_button.checked=d.beep_actions;ctl_ble.checked=d.beep_ble;ctl_error.checked=d.beep_errors;ctl_touch.checked=d.touch_nav;ctl_demo.checked=d.demo;ctl_bright.value=d.brightness;ctl_bright_value.textContent=d.brightness;ctl_rotation.value=String(d.rotation_deg);";
+    html += "ctl_buzzer.disabled=d.settings_locked&&!d.buzzer;ctl_button.disabled=d.settings_locked&&!d.beep_actions;ctl_ble.disabled=d.settings_locked&&!d.beep_ble;ctl_error.disabled=d.settings_locked&&!d.beep_errors;ctl_touch.disabled=d.settings_locked&&!d.touch_nav;ctl_demo.disabled=d.settings_locked&&!d.demo;ctl_bright.disabled=d.settings_locked;ctl_rotation.disabled=d.settings_locked;";
     html += "for(let i=0;i<8;i++)document.getElementById('set'+i).className='item '+(i==d.setting_index?'sel':'');";
     html += "tunetitle.textContent=d.demo?'DEMO TUNE':'LIVE TUNE';tunetitle.className='screen-title '+(d.demo?'demo':'warn');";
     html += "let st=d.tune_active?(d.demo?'SIM LIVE':'LIVE'):(d.tune_armed?(d.demo?'SIM ARMED':'ARMED'):'LOCKED');tunestate.textContent=st;tunestate.className='tunestate '+(d.demo?'demo':(d.tune_active?'warn':(d.tune_armed?'safe':'off')));";
@@ -783,6 +803,7 @@ static void handleState() {
     json += "\"touch_nav\":" + String(g_touchNavigation ? "true" : "false") + ",";
     json += "\"brightness\":" + String(g_brightness) + ",";
     json += "\"rotation_deg\":" + String(displayRotationDegrees());
+    json += ",\"settings_locked\":" + String(wifiSetupBlockedWhileDriving() ? "true" : "false");
     json += ",\"setting_index\":" + String(g_settingIndex);
     json += "}";
     web.send(200, "application/json", json);
@@ -893,6 +914,7 @@ static void handleWpsStart() {
 static void setupWebGui() {
     web.on("/", HTTP_GET, handleRoot);
     web.on("/state", HTTP_GET, handleState);
+    web.on("/ui", HTTP_POST, handleUiSetting);
     web.on("/time_set", HTTP_GET, handleTimeSet);
     web.on("/wifi", HTTP_GET, handleWifiSave);
     web.on("/wps", HTTP_GET, handleWpsStart);
@@ -1089,6 +1111,7 @@ static void stopDemoMode(const char* reason, bool resumeBle) {
     g_tuneSteps = 0;
     g_tuneArmedAt = 0;
     g_lastTuneStepMs = 0;
+    g_touchDown = false;
     g_page = PAGE_MAIN;
     if (!g_conn) {
         g_rpm = 0;
@@ -1119,6 +1142,7 @@ static bool startDemoMode() {
     g_tuneActive = false;
     g_tuneSteps = 0;
     g_tuneArmedAt = 0;
+    g_touchDown = false;
     g_page = PAGE_MAIN;
     doConnect = false;
     g_nextScanAt = 0;
@@ -1141,6 +1165,82 @@ static void serviceDemoMode() {
     g_tmp = 82 + (index / 3);
     g_vlt = 13.7f + ((index & 1) ? 0.1f : 0.0f);
     g_cur = 2.4f;
+}
+
+static bool parseUiBool(const String& value, bool& parsed) {
+    if (value == "1" || value.equalsIgnoreCase("true") || value.equalsIgnoreCase("on")) {
+        parsed = true;
+        return true;
+    }
+    if (value == "0" || value.equalsIgnoreCase("false") || value.equalsIgnoreCase("off")) {
+        parsed = false;
+        return true;
+    }
+    return false;
+}
+
+static void handleUiSetting() {
+    String setting = web.arg("setting");
+    String value = web.arg("value");
+    bool enabled = false;
+    bool isFlag = setting == "buzzer" || setting == "beep_actions" ||
+                  setting == "beep_ble" || setting == "beep_errors" ||
+                  setting == "touch_nav" || setting == "demo";
+
+    if (setting.length() == 0 || value.length() == 0) {
+        web.send(400, "text/plain", "Missing setting or value");
+        return;
+    }
+    if (isFlag && !parseUiBool(value, enabled)) {
+        web.send(400, "text/plain", "Invalid ON/OFF value");
+        return;
+    }
+    if (wifiSetupBlockedWhileDriving() && (!isFlag || enabled)) {
+        web.send(409, "text/plain", "Controls locked while RPM > 650; OFF remains available");
+        return;
+    }
+
+    if (setting == "buzzer") {
+        g_buzzerEnabled = enabled;
+        if (!enabled) stopBeep();
+    } else if (setting == "beep_actions") {
+        g_beepActions = enabled;
+    } else if (setting == "beep_ble") {
+        g_beepBle = enabled;
+    } else if (setting == "beep_errors") {
+        g_beepErrors = enabled;
+    } else if (setting == "touch_nav") {
+        g_touchNavigation = enabled;
+        if (!enabled) g_touchDown = false;
+    } else if (setting == "demo") {
+        if (enabled && !startDemoMode()) {
+            web.send(409, "text/plain", "Demo blocked while real BLE or Tune is active");
+            return;
+        }
+        if (!enabled) stopDemoMode("DEMO AUS: Web", true);
+    } else if (setting == "brightness") {
+        int brightness = value.toInt();
+        if (brightness < 40 || brightness > 255) {
+            web.send(400, "text/plain", "Brightness must be 40..255");
+            return;
+        }
+        g_brightness = static_cast<uint8_t>(brightness);
+        display.setBrightness(g_brightness);
+    } else if (setting == "rotation") {
+        int rotation = value.toInt();
+        if (rotation != 0 && rotation != 90 && rotation != 180 && rotation != 270) {
+            web.send(400, "text/plain", "Rotation must be 0, 90, 180 or 270");
+            return;
+        }
+        g_rotationQuarterTurns = static_cast<uint8_t>(rotation / 90);
+        applyDisplayRotation();
+    } else {
+        web.send(404, "text/plain", "Unknown setting");
+        return;
+    }
+
+    saveUiSettings();
+    web.send(200, "application/json", "{\"ok\":true}");
 }
 
 static void handleSerialCommand(String line) {

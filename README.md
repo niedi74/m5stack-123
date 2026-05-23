@@ -112,7 +112,7 @@ lib_deps =
 | Aktion | Funktion |
 |---|---|
 | Encoder-Knopf kurz drücken | Seiten `ADV`, `T/V`, `SETTINGS`, `TUNE` wechseln |
-| Display antippen | Standardmäßig deaktiviert; optional nur Wechsel `ADV` / `T/V` |
+| Display antippen | Im Fahrbetrieb standardmäßig deaktiviert; optional nur `ADV` / `T/V`, im Demo-Modus alle Seiten |
 | `SETTINGS` | Töne (ab Werk `OFF`), Touch-Navigation, Helligkeit und Display-Drehung einstellen |
 | `SETTINGS` -> `Demo mode` | Im Stand simulierte Live-Werte und Bedienung testen |
 | `SETTINGS` -> `Rotation` | Anzeige relativ zur Einbaulage um `0/90/180/270 deg` drehen; wird gespeichert |
@@ -133,6 +133,8 @@ Temperatur und Spannung. Beim Ausschalten kehrt es ebenfalls zu `ADV` zurueck.
 
 - Die `TUNE`-Seite kann im Demo-Modus inklusive ARM, Start, +/- und Exit
   ausprobiert werden, sendet dabei aber keine Befehle an die 123Tune+.
+- Im Demo-Modus schaltet ein Display-Tap automatisch durch alle Seiten,
+  auch wenn `Touch nav` fuer den Fahrbetrieb weiterhin `OFF` bleibt.
 - Simulierte Werte werden nicht in das Fahrtlog geschrieben und loesen keine
   WiFi-Abschaltung wegen hoher RPM aus.
 - Der Modus ist nicht dauerhaft gespeichert, endet bei einem echten
@@ -140,6 +142,14 @@ Temperatur und Spannung. Beim Ausschalten kehrt es ebenfalls zu `ADV` zurueck.
 - Fuer Diagnose per USB stehen `demo_on`, `demo_status` und `demo_off` bereit.
 - Die Display-Drehung kann auch per USB mit `rotation_next` getestet und
   mit `rotation_reset` auf die bisherige `0 deg`-Lage zurueckgesetzt werden.
+
+### Web-Steuerung
+
+Die WebGUI enthaelt neben den vier Display-Spiegeln ein `Controls`-Feld.
+Dort lassen sich Buzzer-/Ton-Schalter, `Touch nav`, `Demo mode`,
+Helligkeit und Rotation direkt am M5Dial aendern und dauerhaft speichern.
+Bei echten `RPM > 650` blockiert die Firmware das Einschalten oder
+Umstellen; bestehende Schalter koennen weiterhin auf `OFF` gesetzt werden.
 
 ---
 
