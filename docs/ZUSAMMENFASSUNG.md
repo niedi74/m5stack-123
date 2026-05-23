@@ -24,7 +24,7 @@
 ### Software-Stand
 
 - **PlatformIO-Projekt** vollständig: `platformio.ini`, `src/main.cpp`
-- **NimBLE-Arduino v1.4.x** API (v1.x, nicht v2.x), pinned auf `^1.4.3`
+- **NimBLE-Arduino ^2.0.0** API (v2.x; früher v1.4.x, migriert nach Commit `e07af16`)
 - **M5GFX** mit manuellem LGFX-Panel (GC9A01, SPI2)
 - **LGFX_Sprite** für flimmerfreie Display-Updates
 - **Encoder-Button** (PIN 42): Kurzdruck = View-Wechsel, Langer Druck (>600 ms) = Raw-Log Ein/Aus
