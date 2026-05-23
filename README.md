@@ -277,6 +277,16 @@ Die offiziellen Dokumente werden verlinkt und nicht als Fremddateien in dieses
 Repository kopiert. Dadurch bleibt die jeweils aktuelle Herstellerfassung die
 Referenz.
 
+### Akku / Power-Hold
+
+Der M5Dial kann ueber den 3,7-V-Akkuanschluss versorgt werden. Damit das Geraet
+nach dem Abziehen von USB weiterlaeuft, setzt die Firmware beim Start
+`HOLD/GPIO46` auf `HIGH`.
+
+Die Akkuspannung und der Strom sind beim M5Dial nicht als direkter ADC-Wert im
+Pinmap sichtbar. Fuer echte Batterie- oder Strommessung ist daher ein externer
+Sensor sinnvoll, z.B. INA219/INA226 am Grove-I2C-Port.
+
 ## Release-Staende
 
 Die nachpruefbare Entwicklung von Logger, WebGUI und Bedienoberflaeche ist in

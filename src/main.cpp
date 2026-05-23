@@ -52,6 +52,7 @@ static const char* TARGET  = "ef:a8:b2:de:e0:9e";
 #define ENC_A_PIN     41
 #define ENC_B_PIN     40
 #define BUZZER_PIN    3
+#define POWER_HOLD_PIN 46
 #define TOUCH_ADDR    0x38
 #define TOUCH_INT_PIN 14
 #define LONG_PRESS_MS 600
@@ -2154,6 +2155,9 @@ static void handleButton() {
 
 // --- Setup / Loop ---
 void setup() {
+    pinMode(POWER_HOLD_PIN, OUTPUT);
+    digitalWrite(POWER_HOLD_PIN, HIGH);
+
     Serial.begin(115200);
     delay(1200);
     for (int i = 0; i < 5; ++i) {
