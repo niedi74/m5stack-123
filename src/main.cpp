@@ -2021,9 +2021,9 @@ static void drawTune() {
                                            (uint32_t)TFT_ORANGE);
     display.drawString(buf, 120, 154);
     snprintf(buf, sizeof(buf), "ADV %.1f   RPM %d", (float)g_adv, (int)g_rpm);
-    display.setFont(&fonts::FreeSans12pt7b);
+    display.setFont(&fonts::FreeSans9pt7b);
     display.setTextColor(TFT_DARKGREY);
-    display.drawString(buf, 120, 188);
+    display.drawString(buf, 120, 190);
 }
 
 static void changeSettingSelection(int dir) {
