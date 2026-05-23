@@ -1692,6 +1692,8 @@ static bool tuneSendToggle() {
     }
     if (!g_demoMode && !sendRaytacCommandChecked("T")) return false;
     g_tuneActive = !g_tuneActive;
+    g_encoderAccum = 0;
+    g_lastTuneStepMs = 0;
     if (g_tuneActive) {
         g_tuneSteps = 0;
         pushLog(g_demoMode ? "DEMO Tune EIN" : "Tune EIN");
@@ -1715,7 +1717,8 @@ static bool tuneStep(int dir) {
         beep(BEEP_ERROR);
         return false;
     }
-    if (millis() - g_lastTuneStepMs < 150) return false;
+    uint32_t stepGuardMs = g_demoMode ? 25 : 90;
+    if (millis() - g_lastTuneStepMs < stepGuardMs) return false;
     g_lastTuneStepMs = millis();
 
     const char* cmd = dir > 0 ? "A" : "R";
@@ -2087,16 +2090,18 @@ static void handleEncoder() {
     if (delta == 0) return;
 
     g_encoderAccum += delta;
-    const int8_t threshold = g_page == PAGE_SETTINGS ? 1 : 4;
+    const bool preciseUi = g_page == PAGE_SETTINGS || (g_page == PAGE_TUNE && g_tuneActive);
+    const int8_t threshold = preciseUi ? 1 : 4;
+    const uint32_t stepGuardMs = preciseUi ? 55 : 45;
     if (g_encoderAccum >= threshold) {
         g_encoderAccum = 0;
-        if (millis() - lastStepAt < 45) return;
+        if (millis() - lastStepAt < stepGuardMs) return;
         lastStepAt = millis();
         if (g_page == PAGE_SETTINGS) changeSettingSelection(1);
         else if (g_page == PAGE_TUNE && g_tuneActive) tuneStep(1);
     } else if (g_encoderAccum <= -threshold) {
         g_encoderAccum = 0;
-        if (millis() - lastStepAt < 45) return;
+        if (millis() - lastStepAt < stepGuardMs) return;
         lastStepAt = millis();
         if (g_page == PAGE_SETTINGS) changeSettingSelection(-1);
         else if (g_page == PAGE_TUNE && g_tuneActive) tuneStep(-1);
@@ -2246,5 +2251,5 @@ void loop() {
         drawTune();
     }
 
-    delay(80);
+    delay(20);
 }
