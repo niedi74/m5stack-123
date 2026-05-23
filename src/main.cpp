@@ -94,10 +94,11 @@ static int8_t            g_encoderAccum = 0;
 static uint32_t          g_lastTuneStepMs = 0;
 static uint32_t          g_tuneArmedAt = 0;
 static uint8_t           g_settingIndex = 0;
-static bool              g_buzzerEnabled = true;
-static bool              g_beepActions = true;
-static bool              g_beepBle = true;
-static bool              g_beepErrors = true;
+static bool              g_buzzerEnabled = false;
+static bool              g_beepActions = false;
+static bool              g_beepBle = false;
+static bool              g_beepErrors = false;
+static bool              g_touchNavigation = false;
 static uint8_t           g_brightness = 200;
 static uint32_t          g_beepUntil = 0;
 static bool              g_touchDown = false;
@@ -112,8 +113,11 @@ static constexpr float kLogMinRpm = 650.0f;    // suppress ignition/start-only n
 static constexpr int kTuneMaxSteps = 10;       // temporary test correction limit in each direction
 static constexpr uint32_t kTuneArmTimeoutMs = 30000;  // ARM expires unless LIVE is confirmed
 static constexpr uint8_t kBuzzerChannel = 6;
+static constexpr uint8_t kSettingCount = 6;
+static constexpr uint8_t kUiSettingsVersion = 1;  // v1 starts all sounds and touch navigation disabled.
 static constexpr uint32_t kScanWindowMs = 10000;
 static constexpr uint32_t kScanPauseMs[] = { 5000, 10000, 20000, 30000 };
+static constexpr uint32_t kWifiConnectWindowMs = 15000;
 static uint8_t g_scanPauseIndex = 0;
 static uint32_t g_nextScanAt = 0;
 
@@ -127,6 +131,7 @@ static bool        g_wpsActive = false;
 static bool        g_saveWifiAfterWps = false;
 static bool        g_captiveActive = false;
 static bool        g_haveSavedWifi = false;
+static bool        g_wifiQuietOff = false;
 static bool        g_ntpStarted = false;
 static bool        g_timeValid = false;
 static bool        g_rtcOk = false;
@@ -135,6 +140,7 @@ static bool        g_rtcWrittenFromNtp = false;
 static int         g_ntpPolls = 0;
 static char        g_timeSource[12] = "boot";
 static uint32_t    g_lastWifiCheck = 0;
+static uint32_t    g_wifiConnectStartedAt = 0;
 static String      g_serialLine;
 
 static const char* LOG_FILE = "/drive.csv";
@@ -423,6 +429,7 @@ static const char* pageName() {
 
 static void stopBeep() {
     ledcWriteTone(kBuzzerChannel, 0);
+    ledcWrite(kBuzzerChannel, 0);
     g_beepUntil = 0;
 }
 
@@ -444,19 +451,31 @@ static void serviceBuzzer() {
 }
 
 static void saveUiSettings() {
+    prefs.putUChar("ui_ver", kUiSettingsVersion);
     prefs.putBool("buzzer", g_buzzerEnabled);
     prefs.putBool("beep_btn", g_beepActions);
     prefs.putBool("beep_ble", g_beepBle);
     prefs.putBool("beep_err", g_beepErrors);
+    prefs.putBool("touch_nav", g_touchNavigation);
     prefs.putUChar("bright", g_brightness);
 }
 
 static void loadUiSettings() {
-    g_buzzerEnabled = prefs.getBool("buzzer", true);
-    g_beepActions = prefs.getBool("beep_btn", true);
-    g_beepBle = prefs.getBool("beep_ble", true);
-    g_beepErrors = prefs.getBool("beep_err", true);
     g_brightness = prefs.getUChar("bright", 200);
+    if (prefs.getUChar("ui_ver", 0) < kUiSettingsVersion) {
+        g_buzzerEnabled = false;
+        g_beepActions = false;
+        g_beepBle = false;
+        g_beepErrors = false;
+        g_touchNavigation = false;
+        saveUiSettings();
+    } else {
+        g_buzzerEnabled = prefs.getBool("buzzer", false);
+        g_beepActions = prefs.getBool("beep_btn", false);
+        g_beepBle = prefs.getBool("beep_ble", false);
+        g_beepErrors = prefs.getBool("beep_err", false);
+        g_touchNavigation = prefs.getBool("touch_nav", false);
+    }
     if (g_brightness < 40) g_brightness = 40;
     display.setBrightness(g_brightness);
 }
@@ -476,6 +495,16 @@ static void advancePage() {
     beep(BEEP_ACTION);
 }
 
+static void toggleDrivePageFromTouch() {
+    if (g_page == PAGE_MAIN) {
+        g_page = PAGE_AUX;
+        beep(BEEP_ACTION);
+    } else if (g_page == PAGE_AUX) {
+        g_page = PAGE_MAIN;
+        beep(BEEP_ACTION);
+    }
+}
+
 static bool readTouchPressed() {
     uint8_t points = 0;
     Wire.beginTransmission(TOUCH_ADDR);
@@ -487,12 +516,16 @@ static bool readTouchPressed() {
 }
 
 static void handleTouch() {
+    if (!g_touchNavigation) {
+        g_touchDown = false;
+        return;
+    }
     static uint32_t lastPoll = 0;
     if (millis() - lastPoll < 40) return;
     lastPoll = millis();
 
     bool down = readTouchPressed();
-    if (down && !g_touchDown) advancePage();
+    if (down && !g_touchDown) toggleDrivePageFromTouch();
     g_touchDown = down;
 }
 
@@ -596,9 +629,26 @@ static void sendLogFile(const char* path, const char* downloadName) {
     f.close();
 }
 
+static String wifiModeLabel() {
+    if (WiFi.status() == WL_CONNECTED) return "Home WiFi";
+    if (g_wifiAp) return "Setup AP";
+    if (g_wifiQuietOff) return "Offline (quiet)";
+    return "Connecting";
+}
+
+static String wifiIpLabel() {
+    if (WiFi.status() == WL_CONNECTED) return WiFi.localIP().toString();
+    if (g_wifiAp) return WiFi.softAPIP().toString();
+    return "-";
+}
+
+static bool wifiSetupBlockedWhileDriving() {
+    return g_rpm > kLogMinRpm;
+}
+
 static void handleRoot() {
-    String ip = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
-    String mode = WiFi.status() == WL_CONNECTED ? "Home WiFi" : "Setup AP";
+    String ip = wifiIpLabel();
+    String mode = wifiModeLabel();
     String timeText = localTimestamp();
     String html;
     html.reserve(10200);
@@ -615,7 +665,7 @@ static void handleRoot() {
     html += ".map{position:absolute;top:162px;left:0;right:0;text-align:center;font-size:28px;font-weight:800;color:#46b9ff}.maplbl{position:absolute;top:193px;left:0;right:0;text-align:center;color:#888;font-size:14px;font-weight:700}";
     html += ".rpm{position:absolute;bottom:30px;left:0;right:0;text-align:center;font-size:44px;font-weight:800;color:#fff}.rpmlbl{position:absolute;bottom:14px;left:0;right:0;text-align:center;color:#888;font-size:14px;font-weight:700}";
     html += ".big1{position:absolute;top:82px;left:0;right:0;text-align:center;font-size:58px;line-height:1;font-weight:800}.lbl1{position:absolute;top:138px;left:0;right:0;text-align:center;color:#ddd;font-size:16px;font-weight:800}.big2{position:absolute;top:174px;left:0;right:0;text-align:center;font-size:58px;line-height:1;font-weight:800}.lbl2{position:absolute;top:230px;left:0;right:0;text-align:center;color:#ddd;font-size:16px;font-weight:800}";
-    html += ".screen-title{position:absolute;top:54px;left:0;right:0;text-align:center;font-size:22px;font-weight:800;color:#efefef}.items{position:absolute;top:92px;left:45px;right:42px;font-size:15px;font-weight:700;line-height:2}.item{display:flex;justify-content:space-between;color:#888}.item.sel{color:#f39c12}.on{color:#35d46b}.off{color:#777}.warn{color:#ff453a}.safe{color:#ffab19}.tunestate{position:absolute;top:92px;left:0;right:0;text-align:center;font-size:27px;font-weight:800}.tunehelp{position:absolute;top:128px;left:30px;right:30px;text-align:center;color:#aaa;font-size:13px;font-weight:700}.tunestep{position:absolute;top:164px;left:0;right:0;text-align:center;font-size:56px;font-weight:800}.tunemetric{position:absolute;bottom:28px;left:0;right:0;text-align:center;color:#aaa;font-size:14px;font-weight:700}";
+    html += ".screen-title{position:absolute;top:54px;left:0;right:0;text-align:center;font-size:22px;font-weight:800;color:#efefef}.items{position:absolute;top:84px;left:45px;right:42px;font-size:15px;font-weight:700;line-height:1.72}.item{display:flex;justify-content:space-between;color:#888}.item.sel{color:#f39c12}.on{color:#35d46b}.off{color:#777}.warn{color:#ff453a}.safe{color:#ffab19}.tunestate{position:absolute;top:92px;left:0;right:0;text-align:center;font-size:27px;font-weight:800}.tunehelp{position:absolute;top:128px;left:30px;right:30px;text-align:center;color:#aaa;font-size:13px;font-weight:700}.tunestep{position:absolute;top:164px;left:0;right:0;text-align:center;font-size:56px;font-weight:800}.tunemetric{position:absolute;bottom:28px;left:0;right:0;text-align:center;color:#aaa;font-size:14px;font-weight:700}";
     html += ".hidden{display:none}";
     html += ".red{color:#ff3838}.blue{color:#3aa0ff}.orange{color:#f39c12}";
     html += "</style></head><body><h2>M5Dial 123Tune</h2><div class='layout'><div class='mirrors'>";
@@ -633,11 +683,12 @@ static void handleRoot() {
     html += "</div>";
     html += "<div class='dial'><div class='top'><span id='ble3' class='ble'>BLE</span><span id='ign3' class='ign'>IGN #0</span><span class='mode'>SET</span></div>";
     html += "<div class='screen-title'>SETTINGS</div><div class='items'>";
-    html += "<div id='set0' class='item'><span>Buzzer</span><span id='buzz' class='on'>ON</span></div>";
-    html += "<div id='set1' class='item'><span>Button tone</span><span id='btnbeep' class='on'>ON</span></div>";
-    html += "<div id='set2' class='item'><span>BLE tone</span><span id='blebeep' class='on'>ON</span></div>";
-    html += "<div id='set3' class='item'><span>Error tone</span><span id='errbeep' class='on'>ON</span></div>";
-    html += "<div id='set4' class='item'><span>Brightness</span><span id='bright'>200</span></div></div></div>";
+    html += "<div id='set0' class='item'><span>Buzzer</span><span id='buzz' class='" + String(g_buzzerEnabled ? "on'>ON" : "off'>OFF") + "</span></div>";
+    html += "<div id='set1' class='item'><span>Button tone</span><span id='btnbeep' class='" + String(g_beepActions ? "on'>ON" : "off'>OFF") + "</span></div>";
+    html += "<div id='set2' class='item'><span>BLE tone</span><span id='blebeep' class='" + String(g_beepBle ? "on'>ON" : "off'>OFF") + "</span></div>";
+    html += "<div id='set3' class='item'><span>Error tone</span><span id='errbeep' class='" + String(g_beepErrors ? "on'>ON" : "off'>OFF") + "</span></div>";
+    html += "<div id='set4' class='item'><span>Touch nav</span><span id='touchnav' class='" + String(g_touchNavigation ? "on'>ON" : "off'>OFF") + "</span></div>";
+    html += "<div id='set5' class='item'><span>Brightness</span><span id='bright'>200</span></div></div></div>";
     html += "<div class='dial'><div class='top'><span id='ble4' class='ble'>BLE</span><span id='ign4' class='ign'>IGN #0</span><span class='mode warn'>TUNE</span></div>";
     html += "<div class='screen-title warn'>LIVE TUNE</div><div id='tunestate' class='tunestate safe'>LOCKED</div>";
     html += "<div id='tunehelp' class='tunehelp'>Hold on device 2s to ARM</div><div id='tunestep' class='tunestep orange'>+0</div>";
@@ -661,7 +712,7 @@ static void handleRoot() {
     html += "<button type='submit'>Save WiFi and reboot</button></form>";
     html += "<a href='/wps'>Start WPS</a>";
     html += "<p class='muted'>WPS: first click Start WPS here, then press Connect/WPS on the FRITZ!Box.</p>";
-    html += "<p class='muted'>Setup AP fallback: connect to M5Dial-123-Setup (DHCP automatic, no static client IP required), then open 192.168.4.1.</p></div></div></div>";
+    html += "<p class='muted'>While stationary, setup fallback uses M5Dial-123-Setup with DHCP at 192.168.4.1. If RPM rises above 650 before Home WiFi connects, WiFi setup is switched off for quiet driving.</p></div></div></div>";
     html += "<script>";
     html += "function c(s){return s>0?'red':s<0?'blue':'orange'}";
     html += "function yn(id,on){let e=document.getElementById(id);e.textContent=on?'ON':'OFF';e.className=on?'on':'off'}";
@@ -670,8 +721,8 @@ static void handleRoot() {
     html += "adv.textContent=Number(d.adv).toFixed(1);adv.className='adv '+c(d.tune_steps);";
     html += "tunelbl.textContent=d.tune_active?('TUNE '+(d.tune_steps>=0?'+':'')+d.tune_steps):'ADVANCE  deg';tunelbl.className='tunelbl '+c(d.tune_steps);";
     html += "map.textContent=Number(d.map_bar).toFixed(2);rpm.textContent=d.rpm;aux1.textContent=d.temp;aux2.textContent=Number(d.volt).toFixed(1);";
-    html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);bright.textContent=d.brightness;";
-    html += "for(let i=0;i<5;i++)document.getElementById('set'+i).className='item '+(i==d.setting_index?'sel':'');";
+    html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);bright.textContent=d.brightness;";
+    html += "for(let i=0;i<6;i++)document.getElementById('set'+i).className='item '+(i==d.setting_index?'sel':'');";
     html += "let st=d.tune_active?'LIVE':(d.tune_armed?'ARMED':'LOCKED');tunestate.textContent=st;tunestate.className='tunestate '+(d.tune_active?'warn':(d.tune_armed?'safe':'off'));";
     html += "tunehelp.textContent=d.tune_active?'Rotate on device +/-; hold 2s to EXIT':(d.tune_armed?'Hold on device 2s to START':'Hold on device 2s to ARM');";
     html += "tunestep.textContent=(d.tune_steps>=0?'+':'')+d.tune_steps;tunestep.className='tunestep '+c(d.tune_steps);tunemetric.textContent='ADV '+Number(d.adv).toFixed(1)+' deg | RPM '+d.rpm;}";
@@ -704,6 +755,7 @@ static void handleState() {
     json += "\"beep_actions\":" + String(g_beepActions ? "true" : "false") + ",";
     json += "\"beep_ble\":" + String(g_beepBle ? "true" : "false") + ",";
     json += "\"beep_errors\":" + String(g_beepErrors ? "true" : "false") + ",";
+    json += "\"touch_nav\":" + String(g_touchNavigation ? "true" : "false") + ",";
     json += "\"brightness\":" + String(g_brightness);
     json += ",\"setting_index\":" + String(g_settingIndex);
     json += "}";
@@ -725,6 +777,10 @@ static void handleTimeSet() {
 }
 
 static void handleWifiSave() {
+    if (wifiSetupBlockedWhileDriving()) {
+        web.send(409, "text/plain", "WiFi setup blocked while RPM > 650");
+        return;
+    }
     String ssid = web.arg("ssid");
     String pass = web.arg("pass");
     ssid.trim();
@@ -763,6 +819,22 @@ static void stopWps() {
     g_wpsActive = false;
 }
 
+static void disableWifiQuiet(const char* reason) {
+    bool hadAp = g_wifiAp;
+    g_wifiQuietOff = true;
+    g_wifiAp = false;
+    g_wifiConnectStartedAt = 0;
+    stopWps();
+    if (g_captiveActive) {
+        dns.stop();
+        g_captiveActive = false;
+    }
+    if (hadAp) WiFi.softAPdisconnect(true);
+    WiFi.disconnect(true, false);
+    WiFi.mode(WIFI_OFF);
+    pushLog("%s", reason);
+}
+
 static bool startWps() {
     stopWps();
     initWpsConfig();
@@ -784,6 +856,10 @@ static bool startWps() {
 }
 
 static void handleWpsStart() {
+    if (wifiSetupBlockedWhileDriving()) {
+        web.send(409, "text/plain", "WPS blocked while RPM > 650");
+        return;
+    }
     bool ok = startWps();
     web.send(200, "text/plain", ok ? "WPS started. Press Connect/WPS on FRITZ!Box now." : "WPS start failed");
 }
@@ -811,6 +887,15 @@ static void setupWebGui() {
 static void onWifiEvent(WiFiEvent_t event, arduino_event_info_t info) {
     switch (event) {
         case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+            g_wifiQuietOff = false;
+            g_wifiConnectStartedAt = 0;
+            if (g_wifiAp) {
+                dns.stop();
+                g_captiveActive = false;
+                WiFi.softAPdisconnect(true);
+                g_wifiAp = false;
+                WiFi.mode(WIFI_STA);
+            }
             if (g_saveWifiAfterWps) {
                 String ssid = WiFi.SSID();
                 String psk = WiFi.psk();
@@ -824,6 +909,13 @@ static void onWifiEvent(WiFiEvent_t event, arduino_event_info_t info) {
                 g_saveWifiAfterWps = false;
             }
             startNtpIfNeeded();
+            break;
+        case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+            if (g_haveSavedWifi && !g_wifiAp && !g_wifiQuietOff &&
+                g_wifiConnectStartedAt == 0) {
+                g_wifiConnectStartedAt = millis();
+                WiFi.reconnect();
+            }
             break;
         case ARDUINO_EVENT_WPS_ER_SUCCESS:
             pushLog("WPS OK");
@@ -852,6 +944,13 @@ static void onWifiEvent(WiFiEvent_t event, arduino_event_info_t info) {
 
 static void startSetupAp() {
     if (g_wifiAp) return;
+    if (wifiSetupBlockedWhileDriving()) {
+        disableWifiQuiet("WiFi Fahrt AUS");
+        return;
+    }
+    g_wifiQuietOff = false;
+    g_wifiConnectStartedAt = 0;
+    g_wifiAp = true;
     WiFi.disconnect(true, true);
     delay(100);
     WiFi.mode(WIFI_AP);
@@ -863,7 +962,6 @@ static void startSetupAp() {
     WiFi.softAP("M5Dial-123-Setup", nullptr, 6, 0, 4);
     dns.start(53, "*", IPAddress(192, 168, 4, 1));
     g_captiveActive = true;
-    g_wifiAp = true;
     pushLog("AP 192.168.4.1");
 }
 
@@ -888,6 +986,7 @@ static void setupWifi() {
             pushLog("WiFi static %s", ip.toString().c_str());
         }
         WiFi.begin(ssid.c_str(), pass.c_str());
+        g_wifiConnectStartedAt = millis();
         pushLog("WiFi connect...");
     } else {
         startSetupAp();
@@ -900,6 +999,13 @@ static void maintainWifi() {
     web.handleClient();
     if (millis() - g_lastWifiCheck < 5000) return;
     g_lastWifiCheck = millis();
+
+    if (g_rpm > kLogMinRpm && WiFi.status() != WL_CONNECTED && !g_wifiQuietOff) {
+        disableWifiQuiet("WiFi Fahrt AUS");
+        return;
+    }
+
+    if (g_wifiQuietOff) return;
 
     if (WiFi.status() == WL_CONNECTED) {
         static bool announced = false;
@@ -916,21 +1022,20 @@ static void maintainWifi() {
         return;
     }
 
-    if (g_haveSavedWifi && WiFi.status() != WL_CONNECTED) {
-        static uint32_t lastReconnect = 0;
-        if (millis() - lastReconnect >= 10000) {
-            lastReconnect = millis();
-            WiFi.reconnect();
-            pushLog("WiFi retry...");
-        }
+    if (g_wifiAp) return;
+
+    if (g_haveSavedWifi && g_wifiConnectStartedAt != 0 &&
+        millis() - g_wifiConnectStartedAt >= kWifiConnectWindowMs) {
+        startSetupAp();
         return;
     }
 }
 
 static void printWifiStatus() {
     String ssid = prefs.getString("ssid", "");
+    String mode = wifiModeLabel();
     Serial.printf("[WIFI] mode=%s conn=%d ip=%s gw=%s dns=%s saved_ssid=%s static=%d saved_ip=%s time=%s rtc=%d/%d ntp=%d polls=%d\n",
-                  g_wifiAp ? "AP" : "STA",
+                  mode.c_str(),
                   WiFi.status() == WL_CONNECTED ? 1 : 0,
                   WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString().c_str() : "-",
                   WiFi.gatewayIP().toString().c_str(),
@@ -958,7 +1063,58 @@ static void handleSerialCommand(String line) {
         return;
     }
 
+    if (line.equalsIgnoreCase("ui_status")) {
+        Serial.printf("[UI] page=%s buzzer=%d button=%d ble=%d error=%d touch_nav=%d brightness=%u\n",
+                      pageName(),
+                      g_buzzerEnabled ? 1 : 0,
+                      g_beepActions ? 1 : 0,
+                      g_beepBle ? 1 : 0,
+                      g_beepErrors ? 1 : 0,
+                      g_touchNavigation ? 1 : 0,
+                      g_brightness);
+        return;
+    }
+
+    if (line.equalsIgnoreCase("wifi_off")) {
+        disableWifiQuiet("WiFi manuell AUS");
+        Serial.println("[WIFI] quiet offline until reboot");
+        return;
+    }
+
+    if (line.equalsIgnoreCase("wifi_ap")) {
+        if (g_rpm > kLogMinRpm) {
+            Serial.println("[WIFI] AP blocked while RPM > 650");
+        } else {
+            startSetupAp();
+            Serial.println("[WIFI] setup AP enabled while stationary");
+        }
+        return;
+    }
+
+    if (line.equalsIgnoreCase("buzzer_off")) {
+        g_buzzerEnabled = false;
+        g_beepActions = false;
+        g_beepBle = false;
+        g_beepErrors = false;
+        stopBeep();
+        saveUiSettings();
+        Serial.println("[UI] all sounds OFF");
+        return;
+    }
+
+    if (line.equalsIgnoreCase("touch_off")) {
+        g_touchNavigation = false;
+        g_touchDown = false;
+        saveUiSettings();
+        Serial.println("[UI] touch navigation OFF");
+        return;
+    }
+
     if (line.equalsIgnoreCase("wifi_clear")) {
+        if (wifiSetupBlockedWhileDriving()) {
+            Serial.println("[WIFI] setup blocked while RPM > 650");
+            return;
+        }
         prefs.putString("ssid", "");
         prefs.putString("pass", "");
         prefs.putBool("static", false);
@@ -969,6 +1125,10 @@ static void handleSerialCommand(String line) {
     }
 
     if (line.equalsIgnoreCase("wifi_dhcp")) {
+        if (wifiSetupBlockedWhileDriving()) {
+            Serial.println("[WIFI] setup blocked while RPM > 650");
+            return;
+        }
         prefs.putBool("static", false);
         Serial.println("[WIFI] DHCP enabled, rebooting");
         delay(300);
@@ -1063,6 +1223,10 @@ static void handleSerialCommand(String line) {
     }
 
     if (line.startsWith("wifi_static ")) {
+        if (wifiSetupBlockedWhileDriving()) {
+            Serial.println("[WIFI] setup blocked while RPM > 650");
+            return;
+        }
         // Format: wifi_static <ssid> <pass> <ip> [gateway] [mask] [dns]
         String parts[7];
         int count = 0;
@@ -1106,6 +1270,10 @@ static void handleSerialCommand(String line) {
     }
 
     if (line.startsWith("wifi ")) {
+        if (wifiSetupBlockedWhileDriving()) {
+            Serial.println("[WIFI] setup blocked while RPM > 650");
+            return;
+        }
         // Format: wifi <ssid> <pass>
         int p1 = line.indexOf(' ');
         int p2 = line.indexOf(' ', p1 + 1);
@@ -1130,7 +1298,7 @@ static void handleSerialCommand(String line) {
         return;
     }
 
-    Serial.println("[CMD] unknown. use: wifi_status | time_status | time_set <epoch> | tune_arm | tune_on | tune_up | tune_down | tune_zero | tune_off | tune_disarm | wifi_clear | wifi_dhcp | wifi <ssid> <pass> | wifi_static <ssid> <pass> <ip>");
+    Serial.println("[CMD] unknown. use: ui_status | buzzer_off | touch_off | wifi_status | wifi_off | wifi_ap | time_status | time_set <epoch> | tune_arm | tune_on | tune_up | tune_down | tune_zero | tune_off | tune_disarm | wifi_clear | wifi_dhcp | wifi <ssid> <pass> | wifi_static <ssid> <pass> <ip>");
 }
 
 static void pollSerialCommands() {
@@ -1557,8 +1725,8 @@ static void drawAux() {
 }
 
 static void drawSettings() {
-    const char* labels[] = { "Buzzer", "Button tone", "BLE tone", "Error tone", "Brightness" };
-    bool values[] = { g_buzzerEnabled, g_beepActions, g_beepBle, g_beepErrors };
+    const char* labels[] = { "Buzzer", "Button tone", "BLE tone", "Error tone", "Touch nav", "Brightness" };
+    bool values[] = { g_buzzerEnabled, g_beepActions, g_beepBle, g_beepErrors, g_touchNavigation };
     display.fillRect(0, 44, 240, 196, TFT_BLACK);
     display.setTextDatum(MC_DATUM);
     display.setFont(&fonts::FreeSans12pt7b);
@@ -1566,15 +1734,15 @@ static void drawSettings() {
     display.drawString("SETTINGS", 120, 58);
 
     display.setFont(&fonts::FreeSans9pt7b);
-    for (uint8_t i = 0; i < 5; ++i) {
-        int y = 92 + i * 27;
+    for (uint8_t i = 0; i < kSettingCount; ++i) {
+        int y = 82 + i * 23;
         display.setTextDatum(ML_DATUM);
         display.setTextColor(i == g_settingIndex ? (uint32_t)TFT_ORANGE : (uint32_t)TFT_DARKGREY);
         display.drawString(i == g_settingIndex ? ">" : " ", 25, y);
         display.drawString(labels[i], 43, y);
         display.setTextDatum(MR_DATUM);
         char value[8];
-        if (i < 4) {
+        if (i < 5) {
             snprintf(value, sizeof(value), "%s", values[i] ? "ON" : "OFF");
             display.setTextColor(values[i] ? (uint32_t)TFT_GREEN : (uint32_t)TFT_DARKGREY);
         } else {
@@ -1620,8 +1788,8 @@ static void drawTune() {
 
 static void changeSettingSelection(int dir) {
     int next = static_cast<int>(g_settingIndex) + dir;
-    if (next < 0) next = 4;
-    if (next > 4) next = 0;
+    if (next < 0) next = kSettingCount - 1;
+    if (next >= kSettingCount) next = 0;
     g_settingIndex = static_cast<uint8_t>(next);
     beep(BEEP_ACTION);
 }
@@ -1636,6 +1804,10 @@ static void activateSetting() {
         case 2: g_beepBle = !g_beepBle; break;
         case 3: g_beepErrors = !g_beepErrors; break;
         case 4:
+            g_touchNavigation = !g_touchNavigation;
+            g_touchDown = false;
+            break;
+        case 5:
             g_brightness = g_brightness < 120 ? 140 : (g_brightness < 180 ? 200 : (g_brightness < 230 ? 255 : 80));
             display.setBrightness(g_brightness);
             break;

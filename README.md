@@ -111,10 +111,16 @@ lib_deps =
 
 | Aktion | Funktion |
 |---|---|
-| Encoder-Knopf drücken | Wechsel zwischen Hauptansicht und Aux-Ansicht |
+| Encoder-Knopf kurz drücken | Seiten `ADV`, `T/V`, `SETTINGS`, `TUNE` wechseln |
+| Display antippen | Standardmäßig deaktiviert; optional nur Wechsel `ADV` / `T/V` |
+| `SETTINGS` | Töne (ab Werk `OFF`), Touch-Navigation und Helligkeit einstellen |
 | **Hauptansicht** | Zündvoreilung (orange, oben) + RPM (weiß, unten) |
 | **Aux-Ansicht** | Temperatur (cyan, oben) + Spannung (gelb, unten) |
 | BLE-Status oben links | grün = verbunden, rot = Suche läuft |
+
+Im Fahrbetrieb gilt: Wenn bei mehr als `650 RPM` noch kein Home-WLAN
+verbunden ist, schaltet die Firmware WLAN und Setup-AP still aus. Dadurch
+stören keine WiFi-Retry-Meldungen die Anzeige während der Fahrt.
 
 ---
 
