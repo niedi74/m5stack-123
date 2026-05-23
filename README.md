@@ -283,6 +283,10 @@ Der M5Dial kann ueber den 3,7-V-Akkuanschluss versorgt werden. Damit das Geraet
 nach dem Abziehen von USB weiterlaeuft, setzt die Firmware beim Start
 `HOLD/GPIO46` auf `HIGH`.
 
+Der Akku-Betrieb kann am Geraet unter `SETTINGS -> Bat power` oder in der
+WebGUI unter `Controls -> Battery power` ein- und ausgeschaltet werden. Default
+ist `ON`. Bei laufendem Motor (`RPM > 650`) ist die Umschaltung gesperrt.
+
 Die Akkuspannung und der Strom sind beim M5Dial nicht als direkter ADC-Wert im
 Pinmap sichtbar. Fuer echte Batterie- oder Strommessung ist daher ein externer
 Sensor sinnvoll, z.B. INA219/INA226 am Grove-I2C-Port.

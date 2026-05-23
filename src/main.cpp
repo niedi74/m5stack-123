@@ -101,6 +101,7 @@ static bool              g_beepBle = false;
 static bool              g_beepErrors = false;
 static bool              g_touchNavigation = false;
 static bool              g_demoMode = false;
+static bool              g_batteryHoldEnabled = true;
 static uint8_t           g_brightness = 200;
 static uint8_t           g_rotationQuarterTurns = 0;
 static uint32_t          g_beepUntil = 0;
@@ -118,8 +119,8 @@ static constexpr float kLogMinRpm = 650.0f;    // suppress ignition/start-only n
 static constexpr int kTuneMaxSteps = 10;       // temporary test correction limit in each direction
 static constexpr uint32_t kTuneArmTimeoutMs = 30000;  // ARM expires unless LIVE is confirmed
 static constexpr uint8_t kBuzzerChannel = 6;
-static constexpr uint8_t kSettingCount = 8;
-static constexpr uint8_t kUiSettingsVersion = 1;  // v1 starts all sounds and touch navigation disabled.
+static constexpr uint8_t kSettingCount = 9;
+static constexpr uint8_t kUiSettingsVersion = 2;  // v2 adds persisted battery power hold; sounds stay off by default.
 static constexpr uint8_t kDisplayBaseRotation = 2;  // Existing upright installation is the 0 deg reference.
 static constexpr uint32_t kScanWindowMs = 10000;
 static constexpr uint32_t kScanPauseMs[] = { 5000, 10000, 20000, 30000 };
@@ -464,6 +465,11 @@ static void applyDisplayRotation() {
     display.setRotation((kDisplayBaseRotation + g_rotationQuarterTurns) % 4);
 }
 
+static void applyPowerHold() {
+    pinMode(POWER_HOLD_PIN, OUTPUT);
+    digitalWrite(POWER_HOLD_PIN, g_batteryHoldEnabled ? HIGH : LOW);
+}
+
 static void saveUiSettings() {
     prefs.putUChar("ui_ver", kUiSettingsVersion);
     prefs.putBool("buzzer", g_buzzerEnabled);
@@ -471,6 +477,7 @@ static void saveUiSettings() {
     prefs.putBool("beep_ble", g_beepBle);
     prefs.putBool("beep_err", g_beepErrors);
     prefs.putBool("touch_nav", g_touchNavigation);
+    prefs.putBool("bat_hold", g_batteryHoldEnabled);
     prefs.putUChar("bright", g_brightness);
     prefs.putUChar("rot_q", g_rotationQuarterTurns);
 }
@@ -484,6 +491,7 @@ static void loadUiSettings() {
         g_beepBle = false;
         g_beepErrors = false;
         g_touchNavigation = false;
+        g_batteryHoldEnabled = true;
         saveUiSettings();
     } else {
         g_buzzerEnabled = prefs.getBool("buzzer", false);
@@ -491,8 +499,10 @@ static void loadUiSettings() {
         g_beepBle = prefs.getBool("beep_ble", false);
         g_beepErrors = prefs.getBool("beep_err", false);
         g_touchNavigation = prefs.getBool("touch_nav", false);
+        g_batteryHoldEnabled = prefs.getBool("bat_hold", true);
     }
     if (g_brightness < 40) g_brightness = 40;
+    applyPowerHold();
     applyDisplayRotation();
     display.setBrightness(g_brightness);
 }
@@ -683,7 +693,7 @@ static void handleRoot() {
     String tuneState = g_tuneActive ? (g_demoMode ? "SIM LIVE" : "LIVE") :
                        (g_tuneArmed ? (g_demoMode ? "SIM ARMED" : "ARMED") : "LOCKED");
     String html;
-    html.reserve(12500);
+    html.reserve(14000);
     html += "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>";
     html += "<title>M5Dial 123Tune</title><style>";
     html += "body{font-family:system-ui,Segoe UI,Arial;margin:24px;background:#111;color:#eee}";
@@ -698,7 +708,7 @@ static void handleRoot() {
     html += ".map{position:absolute;top:162px;left:0;right:0;text-align:center;font-size:28px;font-weight:800;color:#46b9ff}.maplbl{position:absolute;top:193px;left:0;right:0;text-align:center;color:#888;font-size:14px;font-weight:700}";
     html += ".rpm{position:absolute;bottom:30px;left:0;right:0;text-align:center;font-size:44px;font-weight:800;color:#fff}.rpmlbl{position:absolute;bottom:14px;left:0;right:0;text-align:center;color:#888;font-size:14px;font-weight:700}";
     html += ".big1{position:absolute;top:82px;left:0;right:0;text-align:center;font-size:58px;line-height:1;font-weight:800}.lbl1{position:absolute;top:138px;left:0;right:0;text-align:center;color:#ddd;font-size:16px;font-weight:800}.big2{position:absolute;top:174px;left:0;right:0;text-align:center;font-size:58px;line-height:1;font-weight:800}.lbl2{position:absolute;top:230px;left:0;right:0;text-align:center;color:#ddd;font-size:16px;font-weight:800}";
-    html += ".screen-title{position:absolute;top:54px;left:0;right:0;text-align:center;font-size:22px;font-weight:800;color:#efefef}.items{position:absolute;top:81px;left:45px;right:42px;font-size:14px;font-weight:700;line-height:1.42}.item{display:flex;justify-content:space-between;color:#888}.item.sel{color:#f39c12}.on{color:#35d46b}.off{color:#777}.demo{color:#00d7db}.warn{color:#ff453a}.safe{color:#ffab19}.tunestate{position:absolute;top:92px;left:0;right:0;text-align:center;font-size:27px;font-weight:800}.tunehelp{position:absolute;top:128px;left:30px;right:30px;text-align:center;color:#aaa;font-size:13px;font-weight:700}.tunestep{position:absolute;top:164px;left:0;right:0;text-align:center;font-size:56px;font-weight:800}.tunemetric{position:absolute;bottom:28px;left:0;right:0;text-align:center;color:#aaa;font-size:14px;font-weight:700}";
+    html += ".screen-title{position:absolute;top:54px;left:0;right:0;text-align:center;font-size:22px;font-weight:800;color:#efefef}.items{position:absolute;top:78px;left:45px;right:42px;font-size:13px;font-weight:700;line-height:1.35}.item{display:flex;justify-content:space-between;color:#888}.item.sel{color:#f39c12}.on{color:#35d46b}.off{color:#777}.demo{color:#00d7db}.warn{color:#ff453a}.safe{color:#ffab19}.tunestate{position:absolute;top:92px;left:0;right:0;text-align:center;font-size:27px;font-weight:800}.tunehelp{position:absolute;top:128px;left:30px;right:30px;text-align:center;color:#aaa;font-size:13px;font-weight:700}.tunestep{position:absolute;top:164px;left:0;right:0;text-align:center;font-size:56px;font-weight:800}.tunemetric{position:absolute;bottom:28px;left:0;right:0;text-align:center;color:#aaa;font-size:14px;font-weight:700}";
     html += ".hidden{display:none}";
     html += ".red{color:#ff3838}.blue{color:#3aa0ff}.orange{color:#f39c12}";
     html += "</style></head><body><h2>M5Dial 123Tune</h2><div class='layout'><div class='mirrors'>";
@@ -722,8 +732,9 @@ static void handleRoot() {
     html += "<div id='set3' class='item'><span>Error tone</span><span id='errbeep' class='" + String(g_beepErrors ? "on'>ON" : "off'>OFF") + "</span></div>";
     html += "<div id='set4' class='item'><span>Touch nav</span><span id='touchnav' class='" + String(g_touchNavigation ? "on'>ON" : "off'>OFF") + "</span></div>";
     html += "<div id='set5' class='item'><span>Demo mode</span><span id='demomode' class='" + String(g_demoMode ? "demo'>ON" : "off'>OFF") + "</span></div>";
-    html += "<div id='set6' class='item'><span>Brightness</span><span id='bright'>" + String(g_brightness) + "</span></div>";
-    html += "<div id='set7' class='item'><span>Rotation</span><span id='rotation'>" + String(displayRotationDegrees()) + " deg</span></div></div></div>";
+    html += "<div id='set6' class='item'><span>Bat power</span><span id='bathold' class='" + String(g_batteryHoldEnabled ? "on'>ON" : "off'>OFF") + "</span></div>";
+    html += "<div id='set7' class='item'><span>Brightness</span><span id='bright'>" + String(g_brightness) + "</span></div>";
+    html += "<div id='set8' class='item'><span>Rotation</span><span id='rotation'>" + String(displayRotationDegrees()) + " deg</span></div></div></div>";
     html += "<div class='dial'><div class='top'><span id='ble4' class='ble'>" + liveText + "</span><span id='ign4' class='ign'>" + ignitionText + "</span><span class='mode warn'>TUNE</span></div>";
     html += "<div id='tunetitle' class='screen-title " + String(g_demoMode ? "demo" : "warn") + "'>" + tuneTitle + "</div><div id='tunestate' class='tunestate safe'>" + tuneState + "</div>";
     html += "<div id='tunehelp' class='tunehelp'>Hold on device 2s to ARM</div><div id='tunestep' class='tunestep orange'>+0</div>";
@@ -742,6 +753,7 @@ static void handleRoot() {
     html += "<label class='toggle-row'><span>Error tone</span><input id='ctl_error' type='checkbox' onchange=\"setFlag('beep_errors',this.checked)\"></label>";
     html += "<label class='toggle-row'><span>Touch nav</span><input id='ctl_touch' type='checkbox' onchange=\"setFlag('touch_nav',this.checked)\"></label>";
     html += "<label class='toggle-row'><span>Demo mode</span><input id='ctl_demo' type='checkbox' onchange=\"setFlag('demo',this.checked)\"></label>";
+    html += "<label class='toggle-row'><span>Battery power</span><input id='ctl_bathold' type='checkbox' onchange=\"setFlag('battery_hold',this.checked)\"></label>";
     html += "<label class='slider-row'><span>Brightness <output id='ctl_bright_value'>" + String(g_brightness) + "</output></span><input id='ctl_bright' type='range' min='40' max='255' step='5' value='" + String(g_brightness) + "' onchange=\"setUi('brightness',this.value)\"></label>";
     html += "<label class='select-row'><span>Rotation</span><select id='ctl_rotation' onchange=\"setUi('rotation',this.value)\"><option value='0'>0 deg</option><option value='90'>90 deg</option><option value='180'>180 deg</option><option value='270'>270 deg</option></select></label>";
     html += "<p id='ui_result' class='ui-result'></p></div></div>";
@@ -768,10 +780,10 @@ static void handleRoot() {
     html += "adv.textContent=Number(d.adv).toFixed(1);adv.className='adv '+c(d.tune_steps);";
     html += "tunelbl.textContent=d.tune_active?('TUNE '+(d.tune_steps>=0?'+':'')+d.tune_steps):'ADVANCE  deg';tunelbl.className='tunelbl '+c(d.tune_steps);";
     html += "map.textContent=Number(d.map_bar).toFixed(2);rpm.textContent=d.rpm;aux1.textContent=d.temp;aux2.textContent=Number(d.volt).toFixed(1);";
-    html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);yn('demomode',d.demo);if(d.demo)demomode.className='demo';bright.textContent=d.brightness;rotation.textContent=d.rotation_deg+' deg';";
-    html += "ctl_buzzer.checked=d.buzzer;ctl_button.checked=d.beep_actions;ctl_ble.checked=d.beep_ble;ctl_error.checked=d.beep_errors;ctl_touch.checked=d.touch_nav;ctl_demo.checked=d.demo;ctl_bright.value=d.brightness;ctl_bright_value.textContent=d.brightness;ctl_rotation.value=String(d.rotation_deg);";
-    html += "ctl_buzzer.disabled=d.settings_locked&&!d.buzzer;ctl_button.disabled=d.settings_locked&&!d.beep_actions;ctl_ble.disabled=d.settings_locked&&!d.beep_ble;ctl_error.disabled=d.settings_locked&&!d.beep_errors;ctl_touch.disabled=d.settings_locked&&!d.touch_nav;ctl_demo.disabled=d.settings_locked&&!d.demo;ctl_bright.disabled=d.settings_locked;ctl_rotation.disabled=d.settings_locked;";
-    html += "for(let i=0;i<8;i++)document.getElementById('set'+i).className='item '+(i==d.setting_index?'sel':'');";
+    html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);yn('demomode',d.demo);if(d.demo)demomode.className='demo';yn('bathold',d.battery_hold);bright.textContent=d.brightness;rotation.textContent=d.rotation_deg+' deg';";
+    html += "ctl_buzzer.checked=d.buzzer;ctl_button.checked=d.beep_actions;ctl_ble.checked=d.beep_ble;ctl_error.checked=d.beep_errors;ctl_touch.checked=d.touch_nav;ctl_demo.checked=d.demo;ctl_bathold.checked=d.battery_hold;ctl_bright.value=d.brightness;ctl_bright_value.textContent=d.brightness;ctl_rotation.value=String(d.rotation_deg);";
+    html += "ctl_buzzer.disabled=d.settings_locked&&!d.buzzer;ctl_button.disabled=d.settings_locked&&!d.beep_actions;ctl_ble.disabled=d.settings_locked&&!d.beep_ble;ctl_error.disabled=d.settings_locked&&!d.beep_errors;ctl_touch.disabled=d.settings_locked&&!d.touch_nav;ctl_demo.disabled=d.settings_locked&&!d.demo;ctl_bathold.disabled=d.settings_locked;ctl_bright.disabled=d.settings_locked;ctl_rotation.disabled=d.settings_locked;";
+    html += "for(let i=0;i<9;i++)document.getElementById('set'+i).className='item '+(i==d.setting_index?'sel':'');";
     html += "tunetitle.textContent=d.demo?'DEMO TUNE':'LIVE TUNE';tunetitle.className='screen-title '+(d.demo?'demo':'warn');";
     html += "let st=d.tune_active?(d.demo?'SIM LIVE':'LIVE'):(d.tune_armed?(d.demo?'SIM ARMED':'ARMED'):'LOCKED');tunestate.textContent=st;tunestate.className='tunestate '+(d.demo?'demo':(d.tune_active?'warn':(d.tune_armed?'safe':'off')));";
     html += "tunehelp.textContent=d.tune_active?'Rotate on device +/-; hold 2s to EXIT':(d.tune_armed?'Hold on device 2s to START':'Hold on device 2s to ARM');";
@@ -807,6 +819,7 @@ static void handleState() {
     json += "\"beep_ble\":" + String(g_beepBle ? "true" : "false") + ",";
     json += "\"beep_errors\":" + String(g_beepErrors ? "true" : "false") + ",";
     json += "\"touch_nav\":" + String(g_touchNavigation ? "true" : "false") + ",";
+    json += "\"battery_hold\":" + String(g_batteryHoldEnabled ? "true" : "false") + ",";
     json += "\"brightness\":" + String(g_brightness) + ",";
     json += "\"rotation_deg\":" + String(displayRotationDegrees());
     json += ",\"settings_locked\":" + String(wifiSetupBlockedWhileDriving() ? "true" : "false");
@@ -1191,7 +1204,8 @@ static void handleUiSetting() {
     bool enabled = false;
     bool isFlag = setting == "buzzer" || setting == "beep_actions" ||
                   setting == "beep_ble" || setting == "beep_errors" ||
-                  setting == "touch_nav" || setting == "demo";
+                  setting == "touch_nav" || setting == "demo" ||
+                  setting == "battery_hold";
 
     if (setting.length() == 0 || value.length() == 0) {
         web.send(400, "text/plain", "Missing setting or value");
@@ -1199,6 +1213,10 @@ static void handleUiSetting() {
     }
     if (isFlag && !parseUiBool(value, enabled)) {
         web.send(400, "text/plain", "Invalid ON/OFF value");
+        return;
+    }
+    if (wifiSetupBlockedWhileDriving() && setting == "battery_hold") {
+        web.send(409, "text/plain", "Battery power setting locked while RPM > 650");
         return;
     }
     if (wifiSetupBlockedWhileDriving() && (!isFlag || enabled)) {
@@ -1218,6 +1236,9 @@ static void handleUiSetting() {
     } else if (setting == "touch_nav") {
         g_touchNavigation = enabled;
         if (!enabled) g_touchDown = false;
+    } else if (setting == "battery_hold") {
+        g_batteryHoldEnabled = enabled;
+        applyPowerHold();
     } else if (setting == "demo") {
         if (enabled && !startDemoMode()) {
             web.send(409, "text/plain", "Demo blocked while real BLE or Tune is active");
@@ -1259,7 +1280,7 @@ static void handleSerialCommand(String line) {
     }
 
     if (line.equalsIgnoreCase("ui_status")) {
-        Serial.printf("[UI] page=%s demo=%d buzzer=%d button=%d ble=%d error=%d touch_nav=%d brightness=%u rotation=%u\n",
+        Serial.printf("[UI] page=%s demo=%d buzzer=%d button=%d ble=%d error=%d touch_nav=%d bat_hold=%d brightness=%u rotation=%u\n",
                       pageName(),
                       g_demoMode ? 1 : 0,
                       g_buzzerEnabled ? 1 : 0,
@@ -1267,6 +1288,7 @@ static void handleSerialCommand(String line) {
                       g_beepBle ? 1 : 0,
                       g_beepErrors ? 1 : 0,
                       g_touchNavigation ? 1 : 0,
+                      g_batteryHoldEnabled ? 1 : 0,
                       g_brightness,
                       displayRotationDegrees());
         return;
@@ -1327,6 +1349,18 @@ static void handleSerialCommand(String line) {
         g_touchDown = false;
         saveUiSettings();
         Serial.println("[UI] touch navigation OFF");
+        return;
+    }
+
+    if (line.equalsIgnoreCase("battery_hold_on") || line.equalsIgnoreCase("battery_hold_off")) {
+        if (wifiSetupBlockedWhileDriving()) {
+            Serial.println("[UI] battery hold locked while RPM > 650");
+            return;
+        }
+        g_batteryHoldEnabled = line.equalsIgnoreCase("battery_hold_on");
+        applyPowerHold();
+        saveUiSettings();
+        Serial.printf("[UI] battery hold %s\n", g_batteryHoldEnabled ? "ON" : "OFF");
         return;
     }
 
@@ -1527,7 +1561,7 @@ static void handleSerialCommand(String line) {
         return;
     }
 
-    Serial.println("[CMD] unknown. use: ui_status | demo_status | demo_on | demo_off | rotation_next | rotation_reset | buzzer_off | touch_off | wifi_status | wifi_off | wifi_ap | time_status | time_set <epoch> | tune_arm | tune_on | tune_up | tune_down | tune_zero | tune_off | tune_disarm | wifi_clear | wifi_dhcp | wifi <ssid> <pass> | wifi_static <ssid> <pass> <ip>");
+    Serial.println("[CMD] unknown. use: ui_status | demo_status | demo_on | demo_off | rotation_next | rotation_reset | buzzer_off | touch_off | battery_hold_on | battery_hold_off | wifi_status | wifi_off | wifi_ap | time_status | time_set <epoch> | tune_arm | tune_on | tune_up | tune_down | tune_zero | tune_off | tune_disarm | wifi_clear | wifi_dhcp | wifi <ssid> <pass> | wifi_static <ssid> <pass> <ip>");
 }
 
 static void pollSerialCommands() {
@@ -1960,8 +1994,8 @@ static void drawAux() {
 }
 
 static void drawSettings() {
-    const char* labels[] = { "Buzzer", "Button tone", "BLE tone", "Error tone", "Touch nav", "Demo mode", "Brightness", "Rotation" };
-    bool values[] = { g_buzzerEnabled, g_beepActions, g_beepBle, g_beepErrors, g_touchNavigation, g_demoMode };
+    const char* labels[] = { "Buzzer", "Button tone", "BLE tone", "Error tone", "Touch nav", "Demo mode", "Bat power", "Brightness", "Rotation" };
+    bool values[] = { g_buzzerEnabled, g_beepActions, g_beepBle, g_beepErrors, g_touchNavigation, g_demoMode, g_batteryHoldEnabled };
     display.fillRect(0, 44, 240, 196, TFT_BLACK);
     display.setTextDatum(MC_DATUM);
     display.setFont(&fonts::FreeSans12pt7b);
@@ -1977,11 +2011,11 @@ static void drawSettings() {
         display.drawString(labels[i], 43, y);
         display.setTextDatum(MR_DATUM);
         char value[8];
-        if (i < 6) {
+        if (i < 7) {
             snprintf(value, sizeof(value), "%s", values[i] ? "ON" : "OFF");
             display.setTextColor(i == 5 && values[i] ? (uint32_t)TFT_CYAN :
                                  (values[i] ? (uint32_t)TFT_GREEN : (uint32_t)TFT_DARKGREY));
-        } else if (i == 6) {
+        } else if (i == 7) {
             snprintf(value, sizeof(value), "%u", g_brightness);
             display.setTextColor(TFT_SKYBLUE);
         } else {
@@ -2053,10 +2087,18 @@ static void activateSetting() {
             else startDemoMode();
             break;
         case 6:
+            if (wifiSetupBlockedWhileDriving()) {
+                pushLog("Bat lock Fahrt");
+                break;
+            }
+            g_batteryHoldEnabled = !g_batteryHoldEnabled;
+            applyPowerHold();
+            break;
+        case 7:
             g_brightness = g_brightness < 120 ? 140 : (g_brightness < 180 ? 200 : (g_brightness < 230 ? 255 : 80));
             display.setBrightness(g_brightness);
             break;
-        case 7:
+        case 8:
             g_rotationQuarterTurns = (g_rotationQuarterTurns + 1) % 4;
             applyDisplayRotation();
             pushLog("Rotation %u deg", displayRotationDegrees());
@@ -2155,8 +2197,7 @@ static void handleButton() {
 
 // --- Setup / Loop ---
 void setup() {
-    pinMode(POWER_HOLD_PIN, OUTPUT);
-    digitalWrite(POWER_HOLD_PIN, HIGH);
+    applyPowerHold();
 
     Serial.begin(115200);
     delay(1200);
