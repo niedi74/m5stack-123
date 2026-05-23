@@ -501,6 +501,7 @@ static void advancePage() {
         beep(BEEP_ERROR);
         return;
     }
+    g_encoderAccum = 0;
     UiPage oldPage = g_page;
     g_page = static_cast<UiPage>((static_cast<uint8_t>(g_page) + 1) % PAGE_COUNT);
     if (oldPage == PAGE_TUNE && g_tuneArmed && !g_tuneActive) {
@@ -532,7 +533,15 @@ static bool readTouchPressed() {
 }
 
 static void handleTouch() {
+    if (digitalRead(BTN_PIN) == LOW) {
+        g_touchDown = true;
+        return;
+    }
     if (!g_demoMode && !g_touchNavigation) {
+        g_touchDown = false;
+        return;
+    }
+    if (g_demoMode && g_page == PAGE_SETTINGS) {
         g_touchDown = false;
         return;
     }
@@ -2081,11 +2090,12 @@ static void handleEncoder() {
     if (delta == 0) return;
 
     g_encoderAccum += delta;
-    if (g_encoderAccum >= 4) {
+    const int8_t threshold = g_page == PAGE_SETTINGS ? 2 : 4;
+    if (g_encoderAccum >= threshold) {
         g_encoderAccum = 0;
         if (g_page == PAGE_SETTINGS) changeSettingSelection(1);
         else if (g_page == PAGE_TUNE && g_tuneActive) tuneStep(1);
-    } else if (g_encoderAccum <= -4) {
+    } else if (g_encoderAccum <= -threshold) {
         g_encoderAccum = 0;
         if (g_page == PAGE_SETTINGS) changeSettingSelection(-1);
         else if (g_page == PAGE_TUNE && g_tuneActive) tuneStep(-1);
@@ -2104,7 +2114,7 @@ static void handleButton() {
     if (btn == LOW && !longFired && millis() - pressTime >= holdMs) {
         longFired = true;
         if (g_page == PAGE_SETTINGS) {
-            activateSetting();
+            advancePage();
         } else if (g_page == PAGE_TUNE) {
             if (g_tuneActive) {
                 tuneZero();
@@ -2130,7 +2140,8 @@ static void handleButton() {
         }
     }
     if (btn == HIGH && lastBtn == LOW && !longFired) {
-        advancePage();
+        if (g_page == PAGE_SETTINGS) activateSetting();
+        else advancePage();
     }
     lastBtn = btn;
 }

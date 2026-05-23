@@ -109,9 +109,19 @@ lib_deps =
 
 ## Anzeige-Bedienung
 
+### M5Dial-Eingaben
+
+| Teil | Bedeutung in dieser Firmware |
+|---|---|
+| Touch-Display | Im Demo-Modus Seitenwechsel durch Antippen; in `SETTINGS` bewusst gesperrt |
+| Orangefarbener Drehring | Auswahl bewegen, in aktivem Tune +/- |
+| Mechanischer Button (`BtnA`) | Druck auf das Dial/Gehause; kurz = Aktion, lang = Kontextfunktion |
+
 | Aktion | Funktion |
 |---|---|
-| Encoder-Knopf kurz drücken | Seiten `ADV`, `T/V`, `SETTINGS`, `TUNE` wechseln |
+| Encoder-Knopf kurz drücken | Seiten `ADV`, `T/V`, `SETTINGS`, `TUNE` wechseln; in `SETTINGS` aktuellen Punkt ändern |
+| Encoder-Knopf lang drücken | In `SETTINGS` zur nächsten Seite wechseln; in `TUNE` ARM/Start/Exit |
+| Äußeren Drehring drehen | In `SETTINGS` den Auswahlpfeil bewegen; in aktivem `TUNE` +/- |
 | Display antippen | Im Fahrbetrieb standardmäßig deaktiviert; optional nur `ADV` / `T/V`, im Demo-Modus alle Seiten |
 | `SETTINGS` | Töne (ab Werk `OFF`), Touch-Navigation, Helligkeit und Display-Drehung einstellen |
 | `SETTINGS` -> `Demo mode` | Im Stand simulierte Live-Werte und Bedienung testen |
