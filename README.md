@@ -113,8 +113,9 @@ lib_deps =
 |---|---|
 | Encoder-Knopf kurz drücken | Seiten `ADV`, `T/V`, `SETTINGS`, `TUNE` wechseln |
 | Display antippen | Standardmäßig deaktiviert; optional nur Wechsel `ADV` / `T/V` |
-| `SETTINGS` | Töne (ab Werk `OFF`), Touch-Navigation und Helligkeit einstellen |
+| `SETTINGS` | Töne (ab Werk `OFF`), Touch-Navigation, Helligkeit und Display-Drehung einstellen |
 | `SETTINGS` -> `Demo mode` | Im Stand simulierte Live-Werte und Bedienung testen |
+| `SETTINGS` -> `Rotation` | Anzeige relativ zur Einbaulage um `0/90/180/270 deg` drehen; wird gespeichert |
 | **Hauptansicht** | Zündvoreilung (orange, oben) + RPM (weiß, unten) |
 | **Aux-Ansicht** | Temperatur (cyan, oben) + Spannung (gelb, unten) |
 | BLE-Status oben links | grün = verbunden, rot = Suche läuft |
@@ -137,6 +138,8 @@ Temperatur und Spannung. Beim Ausschalten kehrt es ebenfalls zu `ADV` zurueck.
 - Der Modus ist nicht dauerhaft gespeichert, endet bei einem echten
   BLE-Connect und ist nach einem Neustart wieder `OFF`.
 - Fuer Diagnose per USB stehen `demo_on`, `demo_status` und `demo_off` bereit.
+- Die Display-Drehung kann auch per USB mit `rotation_next` getestet und
+  mit `rotation_reset` auf die bisherige `0 deg`-Lage zurueckgesetzt werden.
 
 ---
 

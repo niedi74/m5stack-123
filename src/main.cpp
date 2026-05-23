@@ -101,6 +101,7 @@ static bool              g_beepErrors = false;
 static bool              g_touchNavigation = false;
 static bool              g_demoMode = false;
 static uint8_t           g_brightness = 200;
+static uint8_t           g_rotationQuarterTurns = 0;
 static uint32_t          g_beepUntil = 0;
 static bool              g_touchDown = false;
 static uint32_t          g_demoStartedAt = 0;
@@ -116,8 +117,9 @@ static constexpr float kLogMinRpm = 650.0f;    // suppress ignition/start-only n
 static constexpr int kTuneMaxSteps = 10;       // temporary test correction limit in each direction
 static constexpr uint32_t kTuneArmTimeoutMs = 30000;  // ARM expires unless LIVE is confirmed
 static constexpr uint8_t kBuzzerChannel = 6;
-static constexpr uint8_t kSettingCount = 7;
+static constexpr uint8_t kSettingCount = 8;
 static constexpr uint8_t kUiSettingsVersion = 1;  // v1 starts all sounds and touch navigation disabled.
+static constexpr uint8_t kDisplayBaseRotation = 2;  // Existing upright installation is the 0 deg reference.
 static constexpr uint32_t kScanWindowMs = 10000;
 static constexpr uint32_t kScanPauseMs[] = { 5000, 10000, 20000, 30000 };
 static constexpr uint32_t kWifiConnectWindowMs = 15000;
@@ -453,6 +455,14 @@ static void serviceBuzzer() {
     if (g_beepUntil != 0 && millis() >= g_beepUntil) stopBeep();
 }
 
+static uint16_t displayRotationDegrees() {
+    return static_cast<uint16_t>(g_rotationQuarterTurns) * 90;
+}
+
+static void applyDisplayRotation() {
+    display.setRotation((kDisplayBaseRotation + g_rotationQuarterTurns) % 4);
+}
+
 static void saveUiSettings() {
     prefs.putUChar("ui_ver", kUiSettingsVersion);
     prefs.putBool("buzzer", g_buzzerEnabled);
@@ -461,10 +471,12 @@ static void saveUiSettings() {
     prefs.putBool("beep_err", g_beepErrors);
     prefs.putBool("touch_nav", g_touchNavigation);
     prefs.putUChar("bright", g_brightness);
+    prefs.putUChar("rot_q", g_rotationQuarterTurns);
 }
 
 static void loadUiSettings() {
     g_brightness = prefs.getUChar("bright", 200);
+    g_rotationQuarterTurns = prefs.getUChar("rot_q", 0) % 4;
     if (prefs.getUChar("ui_ver", 0) < kUiSettingsVersion) {
         g_buzzerEnabled = false;
         g_beepActions = false;
@@ -480,6 +492,7 @@ static void loadUiSettings() {
         g_touchNavigation = prefs.getBool("touch_nav", false);
     }
     if (g_brightness < 40) g_brightness = 40;
+    applyDisplayRotation();
     display.setBrightness(g_brightness);
 }
 
@@ -673,7 +686,7 @@ static void handleRoot() {
     html += ".map{position:absolute;top:162px;left:0;right:0;text-align:center;font-size:28px;font-weight:800;color:#46b9ff}.maplbl{position:absolute;top:193px;left:0;right:0;text-align:center;color:#888;font-size:14px;font-weight:700}";
     html += ".rpm{position:absolute;bottom:30px;left:0;right:0;text-align:center;font-size:44px;font-weight:800;color:#fff}.rpmlbl{position:absolute;bottom:14px;left:0;right:0;text-align:center;color:#888;font-size:14px;font-weight:700}";
     html += ".big1{position:absolute;top:82px;left:0;right:0;text-align:center;font-size:58px;line-height:1;font-weight:800}.lbl1{position:absolute;top:138px;left:0;right:0;text-align:center;color:#ddd;font-size:16px;font-weight:800}.big2{position:absolute;top:174px;left:0;right:0;text-align:center;font-size:58px;line-height:1;font-weight:800}.lbl2{position:absolute;top:230px;left:0;right:0;text-align:center;color:#ddd;font-size:16px;font-weight:800}";
-    html += ".screen-title{position:absolute;top:54px;left:0;right:0;text-align:center;font-size:22px;font-weight:800;color:#efefef}.items{position:absolute;top:81px;left:45px;right:42px;font-size:14px;font-weight:700;line-height:1.58}.item{display:flex;justify-content:space-between;color:#888}.item.sel{color:#f39c12}.on{color:#35d46b}.off{color:#777}.demo{color:#00d7db}.warn{color:#ff453a}.safe{color:#ffab19}.tunestate{position:absolute;top:92px;left:0;right:0;text-align:center;font-size:27px;font-weight:800}.tunehelp{position:absolute;top:128px;left:30px;right:30px;text-align:center;color:#aaa;font-size:13px;font-weight:700}.tunestep{position:absolute;top:164px;left:0;right:0;text-align:center;font-size:56px;font-weight:800}.tunemetric{position:absolute;bottom:28px;left:0;right:0;text-align:center;color:#aaa;font-size:14px;font-weight:700}";
+    html += ".screen-title{position:absolute;top:54px;left:0;right:0;text-align:center;font-size:22px;font-weight:800;color:#efefef}.items{position:absolute;top:81px;left:45px;right:42px;font-size:14px;font-weight:700;line-height:1.42}.item{display:flex;justify-content:space-between;color:#888}.item.sel{color:#f39c12}.on{color:#35d46b}.off{color:#777}.demo{color:#00d7db}.warn{color:#ff453a}.safe{color:#ffab19}.tunestate{position:absolute;top:92px;left:0;right:0;text-align:center;font-size:27px;font-weight:800}.tunehelp{position:absolute;top:128px;left:30px;right:30px;text-align:center;color:#aaa;font-size:13px;font-weight:700}.tunestep{position:absolute;top:164px;left:0;right:0;text-align:center;font-size:56px;font-weight:800}.tunemetric{position:absolute;bottom:28px;left:0;right:0;text-align:center;color:#aaa;font-size:14px;font-weight:700}";
     html += ".hidden{display:none}";
     html += ".red{color:#ff3838}.blue{color:#3aa0ff}.orange{color:#f39c12}";
     html += "</style></head><body><h2>M5Dial 123Tune</h2><div class='layout'><div class='mirrors'>";
@@ -697,7 +710,8 @@ static void handleRoot() {
     html += "<div id='set3' class='item'><span>Error tone</span><span id='errbeep' class='" + String(g_beepErrors ? "on'>ON" : "off'>OFF") + "</span></div>";
     html += "<div id='set4' class='item'><span>Touch nav</span><span id='touchnav' class='" + String(g_touchNavigation ? "on'>ON" : "off'>OFF") + "</span></div>";
     html += "<div id='set5' class='item'><span>Demo mode</span><span id='demomode' class='" + String(g_demoMode ? "demo'>ON" : "off'>OFF") + "</span></div>";
-    html += "<div id='set6' class='item'><span>Brightness</span><span id='bright'>200</span></div></div></div>";
+    html += "<div id='set6' class='item'><span>Brightness</span><span id='bright'>" + String(g_brightness) + "</span></div>";
+    html += "<div id='set7' class='item'><span>Rotation</span><span id='rotation'>" + String(displayRotationDegrees()) + " deg</span></div></div></div>";
     html += "<div class='dial'><div class='top'><span id='ble4' class='ble'>" + liveText + "</span><span id='ign4' class='ign'>" + ignitionText + "</span><span class='mode warn'>TUNE</span></div>";
     html += "<div id='tunetitle' class='screen-title " + String(g_demoMode ? "demo" : "warn") + "'>" + tuneTitle + "</div><div id='tunestate' class='tunestate safe'>" + tuneState + "</div>";
     html += "<div id='tunehelp' class='tunehelp'>Hold on device 2s to ARM</div><div id='tunestep' class='tunestep orange'>+0</div>";
@@ -730,8 +744,8 @@ static void handleRoot() {
     html += "adv.textContent=Number(d.adv).toFixed(1);adv.className='adv '+c(d.tune_steps);";
     html += "tunelbl.textContent=d.tune_active?('TUNE '+(d.tune_steps>=0?'+':'')+d.tune_steps):'ADVANCE  deg';tunelbl.className='tunelbl '+c(d.tune_steps);";
     html += "map.textContent=Number(d.map_bar).toFixed(2);rpm.textContent=d.rpm;aux1.textContent=d.temp;aux2.textContent=Number(d.volt).toFixed(1);";
-    html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);yn('demomode',d.demo);if(d.demo)demomode.className='demo';bright.textContent=d.brightness;";
-    html += "for(let i=0;i<7;i++)document.getElementById('set'+i).className='item '+(i==d.setting_index?'sel':'');";
+    html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);yn('demomode',d.demo);if(d.demo)demomode.className='demo';bright.textContent=d.brightness;rotation.textContent=d.rotation_deg+' deg';";
+    html += "for(let i=0;i<8;i++)document.getElementById('set'+i).className='item '+(i==d.setting_index?'sel':'');";
     html += "tunetitle.textContent=d.demo?'DEMO TUNE':'LIVE TUNE';tunetitle.className='screen-title '+(d.demo?'demo':'warn');";
     html += "let st=d.tune_active?(d.demo?'SIM LIVE':'LIVE'):(d.tune_armed?(d.demo?'SIM ARMED':'ARMED'):'LOCKED');tunestate.textContent=st;tunestate.className='tunestate '+(d.demo?'demo':(d.tune_active?'warn':(d.tune_armed?'safe':'off')));";
     html += "tunehelp.textContent=d.tune_active?'Rotate on device +/-; hold 2s to EXIT':(d.tune_armed?'Hold on device 2s to START':'Hold on device 2s to ARM');";
@@ -767,7 +781,8 @@ static void handleState() {
     json += "\"beep_ble\":" + String(g_beepBle ? "true" : "false") + ",";
     json += "\"beep_errors\":" + String(g_beepErrors ? "true" : "false") + ",";
     json += "\"touch_nav\":" + String(g_touchNavigation ? "true" : "false") + ",";
-    json += "\"brightness\":" + String(g_brightness);
+    json += "\"brightness\":" + String(g_brightness) + ",";
+    json += "\"rotation_deg\":" + String(displayRotationDegrees());
     json += ",\"setting_index\":" + String(g_settingIndex);
     json += "}";
     web.send(200, "application/json", json);
@@ -1138,7 +1153,7 @@ static void handleSerialCommand(String line) {
     }
 
     if (line.equalsIgnoreCase("ui_status")) {
-        Serial.printf("[UI] page=%s demo=%d buzzer=%d button=%d ble=%d error=%d touch_nav=%d brightness=%u\n",
+        Serial.printf("[UI] page=%s demo=%d buzzer=%d button=%d ble=%d error=%d touch_nav=%d brightness=%u rotation=%u\n",
                       pageName(),
                       g_demoMode ? 1 : 0,
                       g_buzzerEnabled ? 1 : 0,
@@ -1146,7 +1161,8 @@ static void handleSerialCommand(String line) {
                       g_beepBle ? 1 : 0,
                       g_beepErrors ? 1 : 0,
                       g_touchNavigation ? 1 : 0,
-                      g_brightness);
+                      g_brightness,
+                      displayRotationDegrees());
         return;
     }
 
@@ -1205,6 +1221,15 @@ static void handleSerialCommand(String line) {
         g_touchDown = false;
         saveUiSettings();
         Serial.println("[UI] touch navigation OFF");
+        return;
+    }
+
+    if (line.equalsIgnoreCase("rotation_next") || line.equalsIgnoreCase("rotation_reset")) {
+        g_rotationQuarterTurns = line.equalsIgnoreCase("rotation_reset") ?
+                                 0 : (g_rotationQuarterTurns + 1) % 4;
+        applyDisplayRotation();
+        saveUiSettings();
+        Serial.printf("[UI] rotation=%u deg\n", displayRotationDegrees());
         return;
     }
 
@@ -1396,7 +1421,7 @@ static void handleSerialCommand(String line) {
         return;
     }
 
-    Serial.println("[CMD] unknown. use: ui_status | demo_status | demo_on | demo_off | buzzer_off | touch_off | wifi_status | wifi_off | wifi_ap | time_status | time_set <epoch> | tune_arm | tune_on | tune_up | tune_down | tune_zero | tune_off | tune_disarm | wifi_clear | wifi_dhcp | wifi <ssid> <pass> | wifi_static <ssid> <pass> <ip>");
+    Serial.println("[CMD] unknown. use: ui_status | demo_status | demo_on | demo_off | rotation_next | rotation_reset | buzzer_off | touch_off | wifi_status | wifi_off | wifi_ap | time_status | time_set <epoch> | tune_arm | tune_on | tune_up | tune_down | tune_zero | tune_off | tune_disarm | wifi_clear | wifi_dhcp | wifi <ssid> <pass> | wifi_static <ssid> <pass> <ip>");
 }
 
 static void pollSerialCommands() {
@@ -1826,7 +1851,7 @@ static void drawAux() {
 }
 
 static void drawSettings() {
-    const char* labels[] = { "Buzzer", "Button tone", "BLE tone", "Error tone", "Touch nav", "Demo mode", "Brightness" };
+    const char* labels[] = { "Buzzer", "Button tone", "BLE tone", "Error tone", "Touch nav", "Demo mode", "Brightness", "Rotation" };
     bool values[] = { g_buzzerEnabled, g_beepActions, g_beepBle, g_beepErrors, g_touchNavigation, g_demoMode };
     display.fillRect(0, 44, 240, 196, TFT_BLACK);
     display.setTextDatum(MC_DATUM);
@@ -1836,10 +1861,10 @@ static void drawSettings() {
 
     display.setFont(&fonts::FreeSans9pt7b);
     for (uint8_t i = 0; i < kSettingCount; ++i) {
-        int y = 78 + i * 20;
+        int y = 78 + i * 17;
         display.setTextDatum(ML_DATUM);
         display.setTextColor(i == g_settingIndex ? (uint32_t)TFT_ORANGE : (uint32_t)TFT_DARKGREY);
-        display.drawString(i == g_settingIndex ? ">" : " ", 25, y);
+        display.drawString(i == g_settingIndex ? ">" : " ", 30, y);
         display.drawString(labels[i], 43, y);
         display.setTextDatum(MR_DATUM);
         char value[8];
@@ -1847,8 +1872,11 @@ static void drawSettings() {
             snprintf(value, sizeof(value), "%s", values[i] ? "ON" : "OFF");
             display.setTextColor(i == 5 && values[i] ? (uint32_t)TFT_CYAN :
                                  (values[i] ? (uint32_t)TFT_GREEN : (uint32_t)TFT_DARKGREY));
-        } else {
+        } else if (i == 6) {
             snprintf(value, sizeof(value), "%u", g_brightness);
+            display.setTextColor(TFT_SKYBLUE);
+        } else {
+            snprintf(value, sizeof(value), "%u deg", displayRotationDegrees());
             display.setTextColor(TFT_SKYBLUE);
         }
         display.drawString(value, 208, y);
@@ -1918,6 +1946,11 @@ static void activateSetting() {
         case 6:
             g_brightness = g_brightness < 120 ? 140 : (g_brightness < 180 ? 200 : (g_brightness < 230 ? 255 : 80));
             display.setBrightness(g_brightness);
+            break;
+        case 7:
+            g_rotationQuarterTurns = (g_rotationQuarterTurns + 1) % 4;
+            applyDisplayRotation();
+            pushLog("Rotation %u deg", displayRotationDegrees());
             break;
     }
     saveUiSettings();
@@ -2012,7 +2045,7 @@ void setup() {
     }
 
     display.init();
-    display.setRotation(2);
+    applyDisplayRotation();
     display.fillScreen(TFT_BLACK);
     display.setBrightness(g_brightness);
 
