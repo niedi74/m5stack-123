@@ -541,10 +541,6 @@ static void handleTouch() {
         g_touchDown = false;
         return;
     }
-    if (g_demoMode && g_page == PAGE_SETTINGS) {
-        g_touchDown = false;
-        return;
-    }
     static uint32_t lastPoll = 0;
     if (millis() - lastPoll < 40) return;
     lastPoll = millis();
@@ -2069,6 +2065,7 @@ static void activateSetting() {
 static void handleEncoder() {
     static uint8_t lastState = 0;
     static bool initialized = false;
+    static uint32_t lastStepAt = 0;
 
     uint8_t state = (digitalRead(ENC_A_PIN) ? 1 : 0) |
                     (digitalRead(ENC_B_PIN) ? 2 : 0);
@@ -2090,13 +2087,17 @@ static void handleEncoder() {
     if (delta == 0) return;
 
     g_encoderAccum += delta;
-    const int8_t threshold = g_page == PAGE_SETTINGS ? 2 : 4;
+    const int8_t threshold = g_page == PAGE_SETTINGS ? 1 : 4;
     if (g_encoderAccum >= threshold) {
         g_encoderAccum = 0;
+        if (millis() - lastStepAt < 45) return;
+        lastStepAt = millis();
         if (g_page == PAGE_SETTINGS) changeSettingSelection(1);
         else if (g_page == PAGE_TUNE && g_tuneActive) tuneStep(1);
     } else if (g_encoderAccum <= -threshold) {
         g_encoderAccum = 0;
+        if (millis() - lastStepAt < 45) return;
+        lastStepAt = millis();
         if (g_page == PAGE_SETTINGS) changeSettingSelection(-1);
         else if (g_page == PAGE_TUNE && g_tuneActive) tuneStep(-1);
     }
