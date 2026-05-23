@@ -99,9 +99,12 @@ static bool              g_beepActions = false;
 static bool              g_beepBle = false;
 static bool              g_beepErrors = false;
 static bool              g_touchNavigation = false;
+static bool              g_demoMode = false;
 static uint8_t           g_brightness = 200;
 static uint32_t          g_beepUntil = 0;
 static bool              g_touchDown = false;
+static uint32_t          g_demoStartedAt = 0;
+static uint32_t          g_lastDemoUpdate = 0;
 
 static NimBLEClient* pClient   = nullptr;
 static NimBLERemoteCharacteristic* pNusRx = nullptr;
@@ -113,7 +116,7 @@ static constexpr float kLogMinRpm = 650.0f;    // suppress ignition/start-only n
 static constexpr int kTuneMaxSteps = 10;       // temporary test correction limit in each direction
 static constexpr uint32_t kTuneArmTimeoutMs = 30000;  // ARM expires unless LIVE is confirmed
 static constexpr uint8_t kBuzzerChannel = 6;
-static constexpr uint8_t kSettingCount = 6;
+static constexpr uint8_t kSettingCount = 7;
 static constexpr uint8_t kUiSettingsVersion = 1;  // v1 starts all sounds and touch navigation disabled.
 static constexpr uint32_t kScanWindowMs = 10000;
 static constexpr uint32_t kScanPauseMs[] = { 5000, 10000, 20000, 30000 };
@@ -643,13 +646,18 @@ static String wifiIpLabel() {
 }
 
 static bool wifiSetupBlockedWhileDriving() {
-    return g_rpm > kLogMinRpm;
+    return !g_demoMode && g_rpm > kLogMinRpm;
 }
 
 static void handleRoot() {
     String ip = wifiIpLabel();
     String mode = wifiModeLabel();
     String timeText = localTimestamp();
+    String liveText = g_demoMode ? "DEMO" : (g_conn ? "BLE OK" : "Suche...");
+    String ignitionText = g_demoMode ? "SIM TEST" : ("IGN #" + String((unsigned long)g_rxCnt));
+    String tuneTitle = g_demoMode ? "DEMO TUNE" : "LIVE TUNE";
+    String tuneState = g_tuneActive ? (g_demoMode ? "SIM LIVE" : "LIVE") :
+                       (g_tuneArmed ? (g_demoMode ? "SIM ARMED" : "ARMED") : "LOCKED");
     String html;
     html.reserve(10200);
     html += "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>";
@@ -665,32 +673,33 @@ static void handleRoot() {
     html += ".map{position:absolute;top:162px;left:0;right:0;text-align:center;font-size:28px;font-weight:800;color:#46b9ff}.maplbl{position:absolute;top:193px;left:0;right:0;text-align:center;color:#888;font-size:14px;font-weight:700}";
     html += ".rpm{position:absolute;bottom:30px;left:0;right:0;text-align:center;font-size:44px;font-weight:800;color:#fff}.rpmlbl{position:absolute;bottom:14px;left:0;right:0;text-align:center;color:#888;font-size:14px;font-weight:700}";
     html += ".big1{position:absolute;top:82px;left:0;right:0;text-align:center;font-size:58px;line-height:1;font-weight:800}.lbl1{position:absolute;top:138px;left:0;right:0;text-align:center;color:#ddd;font-size:16px;font-weight:800}.big2{position:absolute;top:174px;left:0;right:0;text-align:center;font-size:58px;line-height:1;font-weight:800}.lbl2{position:absolute;top:230px;left:0;right:0;text-align:center;color:#ddd;font-size:16px;font-weight:800}";
-    html += ".screen-title{position:absolute;top:54px;left:0;right:0;text-align:center;font-size:22px;font-weight:800;color:#efefef}.items{position:absolute;top:84px;left:45px;right:42px;font-size:15px;font-weight:700;line-height:1.72}.item{display:flex;justify-content:space-between;color:#888}.item.sel{color:#f39c12}.on{color:#35d46b}.off{color:#777}.warn{color:#ff453a}.safe{color:#ffab19}.tunestate{position:absolute;top:92px;left:0;right:0;text-align:center;font-size:27px;font-weight:800}.tunehelp{position:absolute;top:128px;left:30px;right:30px;text-align:center;color:#aaa;font-size:13px;font-weight:700}.tunestep{position:absolute;top:164px;left:0;right:0;text-align:center;font-size:56px;font-weight:800}.tunemetric{position:absolute;bottom:28px;left:0;right:0;text-align:center;color:#aaa;font-size:14px;font-weight:700}";
+    html += ".screen-title{position:absolute;top:54px;left:0;right:0;text-align:center;font-size:22px;font-weight:800;color:#efefef}.items{position:absolute;top:81px;left:45px;right:42px;font-size:14px;font-weight:700;line-height:1.58}.item{display:flex;justify-content:space-between;color:#888}.item.sel{color:#f39c12}.on{color:#35d46b}.off{color:#777}.demo{color:#00d7db}.warn{color:#ff453a}.safe{color:#ffab19}.tunestate{position:absolute;top:92px;left:0;right:0;text-align:center;font-size:27px;font-weight:800}.tunehelp{position:absolute;top:128px;left:30px;right:30px;text-align:center;color:#aaa;font-size:13px;font-weight:700}.tunestep{position:absolute;top:164px;left:0;right:0;text-align:center;font-size:56px;font-weight:800}.tunemetric{position:absolute;bottom:28px;left:0;right:0;text-align:center;color:#aaa;font-size:14px;font-weight:700}";
     html += ".hidden{display:none}";
     html += ".red{color:#ff3838}.blue{color:#3aa0ff}.orange{color:#f39c12}";
     html += "</style></head><body><h2>M5Dial 123Tune</h2><div class='layout'><div class='mirrors'>";
     html += "<div class='dial'>";
-    html += "<div class='top'><span id='ble' class='ble'>BLE</span><span id='ign' class='ign'>IGN #0</span><span id='mode' class='mode'>ADV</span></div>";
+    html += "<div class='top'><span id='ble' class='ble'>" + liveText + "</span><span id='ign' class='ign'>" + ignitionText + "</span><span id='mode' class='mode'>ADV</span></div>";
     html += "<div id='adv' class='adv orange'>0.0</div>";
     html += "<div id='tunelbl' class='tunelbl orange'>ADVANCE&nbsp; deg</div>";
     html += "<div id='map' class='map'>0.00</div><div class='maplbl'>MAP&nbsp; bar</div>";
     html += "<div id='rpm' class='rpm'>0</div><div class='rpmlbl'>RPM</div>";
     html += "</div>";
     html += "<div class='dial'>";
-    html += "<div class='top'><span id='ble2' class='ble'>BLE</span><span id='ign2' class='ign'>IGN #0</span><span class='mode'>T/V</span></div>";
+    html += "<div class='top'><span id='ble2' class='ble'>" + liveText + "</span><span id='ign2' class='ign'>" + ignitionText + "</span><span class='mode'>T/V</span></div>";
     html += "<div id='aux1' class='big1' style='color:#00ffff'>0</div><div class='lbl1'>TEMP&nbsp; degC</div>";
     html += "<div id='aux2' class='big2' style='color:#ffff00'>0.0</div><div class='lbl2'>VOLT&nbsp; V</div>";
     html += "</div>";
-    html += "<div class='dial'><div class='top'><span id='ble3' class='ble'>BLE</span><span id='ign3' class='ign'>IGN #0</span><span class='mode'>SET</span></div>";
+    html += "<div class='dial'><div class='top'><span id='ble3' class='ble'>" + liveText + "</span><span id='ign3' class='ign'>" + ignitionText + "</span><span class='mode'>SET</span></div>";
     html += "<div class='screen-title'>SETTINGS</div><div class='items'>";
     html += "<div id='set0' class='item'><span>Buzzer</span><span id='buzz' class='" + String(g_buzzerEnabled ? "on'>ON" : "off'>OFF") + "</span></div>";
     html += "<div id='set1' class='item'><span>Button tone</span><span id='btnbeep' class='" + String(g_beepActions ? "on'>ON" : "off'>OFF") + "</span></div>";
     html += "<div id='set2' class='item'><span>BLE tone</span><span id='blebeep' class='" + String(g_beepBle ? "on'>ON" : "off'>OFF") + "</span></div>";
     html += "<div id='set3' class='item'><span>Error tone</span><span id='errbeep' class='" + String(g_beepErrors ? "on'>ON" : "off'>OFF") + "</span></div>";
     html += "<div id='set4' class='item'><span>Touch nav</span><span id='touchnav' class='" + String(g_touchNavigation ? "on'>ON" : "off'>OFF") + "</span></div>";
-    html += "<div id='set5' class='item'><span>Brightness</span><span id='bright'>200</span></div></div></div>";
-    html += "<div class='dial'><div class='top'><span id='ble4' class='ble'>BLE</span><span id='ign4' class='ign'>IGN #0</span><span class='mode warn'>TUNE</span></div>";
-    html += "<div class='screen-title warn'>LIVE TUNE</div><div id='tunestate' class='tunestate safe'>LOCKED</div>";
+    html += "<div id='set5' class='item'><span>Demo mode</span><span id='demomode' class='" + String(g_demoMode ? "demo'>ON" : "off'>OFF") + "</span></div>";
+    html += "<div id='set6' class='item'><span>Brightness</span><span id='bright'>200</span></div></div></div>";
+    html += "<div class='dial'><div class='top'><span id='ble4' class='ble'>" + liveText + "</span><span id='ign4' class='ign'>" + ignitionText + "</span><span class='mode warn'>TUNE</span></div>";
+    html += "<div id='tunetitle' class='screen-title " + String(g_demoMode ? "demo" : "warn") + "'>" + tuneTitle + "</div><div id='tunestate' class='tunestate safe'>" + tuneState + "</div>";
     html += "<div id='tunehelp' class='tunehelp'>Hold on device 2s to ARM</div><div id='tunestep' class='tunestep orange'>+0</div>";
     html += "<div id='tunemetric' class='tunemetric'>ADV 0.0 deg | RPM 0</div></div>";
     html += "</div><div class='side'>";
@@ -698,7 +707,7 @@ static void handleRoot() {
     html += "<div>Time: " + timeText + " (" + String(g_timeValid ? g_timeSource : "boot") + ")</div>";
     html += "<div>GW: " + WiFi.gatewayIP().toString() + " / DNS: " + WiFi.dnsIP().toString() + "</div>";
     html += "<div>RTC: " + String(g_rtcOk ? (g_rtcValid ? "valid" : "seen") : "missing") + " / NTP polls: " + String(g_ntpPolls) + "</div>";
-    html += "<div>BLE: " + String(g_conn ? "connected" : "searching") + "</div>";
+    html += "<div>BLE: " + String(g_demoMode ? "DEMO - no device TX" : (g_conn ? "connected" : "searching")) + "</div>";
     html += "<div>RPM: " + String((int)g_rpm) + " / ADV: " + String((float)g_adv, 1) + " / MAP: " + String(mapBar(), 2) + " bar</div></div>";
     html += "<div class='box'><h3>Time</h3>";
     html += "<button onclick=\"fetch('/time_set?epoch='+Math.floor(Date.now()/1000)).then(()=>location.reload())\">Sync from browser</button>";
@@ -721,15 +730,16 @@ static void handleRoot() {
     html += "adv.textContent=Number(d.adv).toFixed(1);adv.className='adv '+c(d.tune_steps);";
     html += "tunelbl.textContent=d.tune_active?('TUNE '+(d.tune_steps>=0?'+':'')+d.tune_steps):'ADVANCE  deg';tunelbl.className='tunelbl '+c(d.tune_steps);";
     html += "map.textContent=Number(d.map_bar).toFixed(2);rpm.textContent=d.rpm;aux1.textContent=d.temp;aux2.textContent=Number(d.volt).toFixed(1);";
-    html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);bright.textContent=d.brightness;";
-    html += "for(let i=0;i<6;i++)document.getElementById('set'+i).className='item '+(i==d.setting_index?'sel':'');";
-    html += "let st=d.tune_active?'LIVE':(d.tune_armed?'ARMED':'LOCKED');tunestate.textContent=st;tunestate.className='tunestate '+(d.tune_active?'warn':(d.tune_armed?'safe':'off'));";
+    html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);yn('demomode',d.demo);if(d.demo)demomode.className='demo';bright.textContent=d.brightness;";
+    html += "for(let i=0;i<7;i++)document.getElementById('set'+i).className='item '+(i==d.setting_index?'sel':'');";
+    html += "tunetitle.textContent=d.demo?'DEMO TUNE':'LIVE TUNE';tunetitle.className='screen-title '+(d.demo?'demo':'warn');";
+    html += "let st=d.tune_active?(d.demo?'SIM LIVE':'LIVE'):(d.tune_armed?(d.demo?'SIM ARMED':'ARMED'):'LOCKED');tunestate.textContent=st;tunestate.className='tunestate '+(d.demo?'demo':(d.tune_active?'warn':(d.tune_armed?'safe':'off')));";
     html += "tunehelp.textContent=d.tune_active?'Rotate on device +/-; hold 2s to EXIT':(d.tune_armed?'Hold on device 2s to START':'Hold on device 2s to ARM');";
     html += "tunestep.textContent=(d.tune_steps>=0?'+':'')+d.tune_steps;tunestep.className='tunestep '+c(d.tune_steps);tunemetric.textContent='ADV '+Number(d.adv).toFixed(1)+' deg | RPM '+d.rpm;}";
     html += "async function upd(){try{let r=await fetch('/state',{cache:'no-store'});let d=await r.json();";
-    html += "ble.textContent=d.ble?'BLE OK':'Suche...';ble.style.color=d.ble?'#1ec85a':'#e33';";
+    html += "ble.textContent=d.demo?'DEMO':(d.ble?'BLE OK':'Suche...');ble.style.color=d.demo?'#00d7db':(d.ble?'#1ec85a':'#e33');";
     html += "ble2.textContent=ble.textContent;ble2.style.color=ble.style.color;ble3.textContent=ble.textContent;ble3.style.color=ble.style.color;ble4.textContent=ble.textContent;ble4.style.color=ble.style.color;";
-    html += "ign.textContent='IGN #'+d.rx;ign2.textContent=ign.textContent;ign3.textContent=ign.textContent;ign4.textContent=ign.textContent;paint(d);}catch(e){}}";
+    html += "ign.textContent=d.demo?'SIM TEST':('IGN #'+d.rx);ign2.textContent=ign.textContent;ign3.textContent=ign.textContent;ign4.textContent=ign.textContent;paint(d);}catch(e){}}";
     html += "upd();setInterval(upd,2000);</script>";
     html += "</body></html>";
     web.send(200, "text/html", html);
@@ -740,6 +750,7 @@ static void handleState() {
     json.reserve(420);
     json += "{";
     json += "\"ble\":" + String(g_conn ? "true" : "false") + ",";
+    json += "\"demo\":" + String(g_demoMode ? "true" : "false") + ",";
     json += "\"page\":\"" + String(pageName()) + "\",";
     json += "\"rx\":" + String((unsigned long)g_rxCnt) + ",";
     json += "\"rpm\":" + String((int)g_rpm) + ",";
@@ -1000,7 +1011,7 @@ static void maintainWifi() {
     if (millis() - g_lastWifiCheck < 5000) return;
     g_lastWifiCheck = millis();
 
-    if (g_rpm > kLogMinRpm && WiFi.status() != WL_CONNECTED && !g_wifiQuietOff) {
+    if (wifiSetupBlockedWhileDriving() && WiFi.status() != WL_CONNECTED && !g_wifiQuietOff) {
         disableWifiQuiet("WiFi Fahrt AUS");
         return;
     }
@@ -1053,6 +1064,69 @@ static void printWifiStatus() {
 static bool tuneSendToggle();
 static bool tuneStep(int dir);
 static void tuneZero();
+static void startScan();
+
+static void stopDemoMode(const char* reason, bool resumeBle) {
+    if (!g_demoMode) return;
+    g_demoMode = false;
+    g_tuneArmed = false;
+    g_tuneActive = false;
+    g_tuneSteps = 0;
+    g_tuneArmedAt = 0;
+    g_lastTuneStepMs = 0;
+    g_page = PAGE_MAIN;
+    if (!g_conn) {
+        g_rpm = 0;
+        g_adv = 0;
+        g_map = 0;
+        g_tmp = 0;
+        g_vlt = 0;
+        g_cur = 0;
+    }
+    pushLog("%s", reason);
+    if (resumeBle && !g_conn) {
+        g_scanPauseIndex = 0;
+        g_nextScanAt = 0;
+        startScan();
+    }
+}
+
+static bool startDemoMode() {
+    if (g_demoMode) return true;
+    if (g_conn || g_tuneActive) {
+        pushLog("DEMO blockiert");
+        return false;
+    }
+    g_demoMode = true;
+    g_demoStartedAt = millis();
+    g_lastDemoUpdate = 0;
+    g_tuneArmed = false;
+    g_tuneActive = false;
+    g_tuneSteps = 0;
+    g_tuneArmedAt = 0;
+    g_page = PAGE_MAIN;
+    doConnect = false;
+    g_nextScanAt = 0;
+    NimBLEDevice::getScan()->stop();
+    pushLog("DEMO EIN - kein TX");
+    return true;
+}
+
+static void serviceDemoMode() {
+    if (!g_demoMode || millis() - g_lastDemoUpdate < 120) return;
+    g_lastDemoUpdate = millis();
+    static const uint16_t rpm[] = { 850, 1050, 1450, 2000, 2600, 3200, 2800, 1800 };
+    static const float adv[] = { 12.0f, 15.0f, 20.0f, 26.0f, 30.0f, 32.0f, 30.0f, 23.0f };
+    static const uint8_t map[] = { 45, 48, 55, 68, 84, 95, 78, 58 };
+    uint8_t index = ((millis() - g_demoStartedAt) / 1200) %
+                    (sizeof(rpm) / sizeof(rpm[0]));
+    g_rpm = rpm[index];
+    g_adv = adv[index] + (g_tuneActive ? g_tuneSteps : 0);
+    g_map = map[index];
+    g_tmp = 82 + (index / 3);
+    g_vlt = 13.7f + ((index & 1) ? 0.1f : 0.0f);
+    g_cur = 2.4f;
+}
 
 static void handleSerialCommand(String line) {
     line.trim();
@@ -1064,14 +1138,38 @@ static void handleSerialCommand(String line) {
     }
 
     if (line.equalsIgnoreCase("ui_status")) {
-        Serial.printf("[UI] page=%s buzzer=%d button=%d ble=%d error=%d touch_nav=%d brightness=%u\n",
+        Serial.printf("[UI] page=%s demo=%d buzzer=%d button=%d ble=%d error=%d touch_nav=%d brightness=%u\n",
                       pageName(),
+                      g_demoMode ? 1 : 0,
                       g_buzzerEnabled ? 1 : 0,
                       g_beepActions ? 1 : 0,
                       g_beepBle ? 1 : 0,
                       g_beepErrors ? 1 : 0,
                       g_touchNavigation ? 1 : 0,
                       g_brightness);
+        return;
+    }
+
+    if (line.equalsIgnoreCase("demo_status")) {
+        Serial.printf("[DEMO] active=%d no_tx=1 rpm=%d adv=%.1f map=%d tune=%d/%+d\n",
+                      g_demoMode ? 1 : 0,
+                      (int)g_rpm,
+                      (float)g_adv,
+                      (int)g_map,
+                      g_tuneActive ? 1 : 0,
+                      g_tuneSteps);
+        return;
+    }
+
+    if (line.equalsIgnoreCase("demo_on")) {
+        Serial.println(startDemoMode() ? "[DEMO] ON - no BLE commands, no drive log" :
+                                         "[DEMO] blocked while real BLE/Tune is active");
+        return;
+    }
+
+    if (line.equalsIgnoreCase("demo_off")) {
+        stopDemoMode("DEMO AUS", true);
+        Serial.println("[DEMO] OFF");
         return;
     }
 
@@ -1298,7 +1396,7 @@ static void handleSerialCommand(String line) {
         return;
     }
 
-    Serial.println("[CMD] unknown. use: ui_status | buzzer_off | touch_off | wifi_status | wifi_off | wifi_ap | time_status | time_set <epoch> | tune_arm | tune_on | tune_up | tune_down | tune_zero | tune_off | tune_disarm | wifi_clear | wifi_dhcp | wifi <ssid> <pass> | wifi_static <ssid> <pass> <ip>");
+    Serial.println("[CMD] unknown. use: ui_status | demo_status | demo_on | demo_off | buzzer_off | touch_off | wifi_status | wifi_off | wifi_ap | time_status | time_set <epoch> | tune_arm | tune_on | tune_up | tune_down | tune_zero | tune_off | tune_disarm | wifi_clear | wifi_dhcp | wifi <ssid> <pass> | wifi_static <ssid> <pass> <ip>");
 }
 
 static void pollSerialCommands() {
@@ -1315,7 +1413,6 @@ static void pollSerialCommands() {
 }
 
 // --- NimBLE callbacks ---
-static void startScan();
 
 static void resetScanBackoff() {
     g_scanPauseIndex = 0;
@@ -1335,6 +1432,7 @@ static void scheduleScanRetry() {
 
 class ClientCB : public NimBLEClientCallbacks {
     void onConnect(NimBLEClient*) override {
+        if (g_demoMode) stopDemoMode("DEMO AUS: BLE", false);
         g_conn = true;
         resetScanBackoff();
         pushLog("Verbunden!");
@@ -1347,7 +1445,7 @@ class ClientCB : public NimBLEClientCallbacks {
         pNusRx  = nullptr;
         pushLog("Disc reason=%d", reason);
         beep(BEEP_ERROR);
-        startScan();
+        if (!g_demoMode) startScan();
     }
     bool onConnParamsUpdateRequest(NimBLEClient*, const ble_gap_upd_params* p) override {
         pushLog("ParaReq %u-%u L%u T%u",
@@ -1361,6 +1459,7 @@ class ClientCB : public NimBLEClientCallbacks {
 
 class ScanCB : public NimBLEScanCallbacks {
     void onResult(const NimBLEAdvertisedDevice* dev) override {
+        if (g_demoMode) return;
         String addr = dev->getAddress().toString().c_str();
         addr.toLowerCase();
         if (addr == TARGET) {
@@ -1372,7 +1471,7 @@ class ScanCB : public NimBLEScanCallbacks {
         }
     }
     void onScanEnd(const NimBLEScanResults&, int reason) override {
-        if (g_conn || doConnect) return;
+        if (g_demoMode || g_conn || doConnect) return;
         pushLog("Scan Ende r=%d", reason);
         scheduleScanRetry();
     }
@@ -1382,7 +1481,7 @@ static ClientCB clientCB;
 static ScanCB   scanCB;
 
 static void startScan() {
-    if (g_conn || doConnect) return;
+    if (g_demoMode || g_conn || doConnect) return;
     g_nextScanAt = 0;
     pushLog("Scan 10s...");
     auto* s = NimBLEDevice::getScan();
@@ -1397,7 +1496,7 @@ static void startScan() {
 }
 
 static void serviceScanRetry() {
-    if (g_conn || doConnect || g_nextScanAt == 0) return;
+    if (g_demoMode || g_conn || doConnect || g_nextScanAt == 0) return;
     if (static_cast<int32_t>(millis() - g_nextScanAt) >= 0) {
         startScan();
     }
@@ -1461,14 +1560,14 @@ static bool tuneSendToggle() {
         beep(BEEP_ERROR);
         return false;
     }
-    if (!sendRaytacCommandChecked("T")) return false;
+    if (!g_demoMode && !sendRaytacCommandChecked("T")) return false;
     g_tuneActive = !g_tuneActive;
     if (g_tuneActive) {
         g_tuneSteps = 0;
-        pushLog("Tune EIN");
+        pushLog(g_demoMode ? "DEMO Tune EIN" : "Tune EIN");
         beep(BEEP_ERROR);
     } else {
-        pushLog("Tune AUS");
+        pushLog(g_demoMode ? "DEMO Tune AUS" : "Tune AUS");
         beep(BEEP_ACTION);
     }
     return true;
@@ -1490,9 +1589,9 @@ static bool tuneStep(int dir) {
     g_lastTuneStepMs = millis();
 
     const char* cmd = dir > 0 ? "A" : "R";
-    if (!sendRaytacCommandChecked(cmd)) return false;
+    if (!g_demoMode && !sendRaytacCommandChecked(cmd)) return false;
     g_tuneSteps += dir > 0 ? 1 : -1;
-    pushLog("Tune %+d", g_tuneSteps);
+    pushLog(g_demoMode ? "DEMO Tune %+d" : "Tune %+d", g_tuneSteps);
     beep(BEEP_ACTION);
     return true;
 }
@@ -1621,12 +1720,14 @@ static void drawStatus() {
     display.setFont(&fonts::FreeSans9pt7b);
 
     display.setTextDatum(ML_DATUM);
-    display.setTextColor(g_conn ? (uint32_t)TFT_GREEN : (uint32_t)TFT_RED);
-    display.drawString(g_conn ? "BLE OK" : "Suche...", 66, 20);
+    display.setTextColor(g_demoMode ? (uint32_t)TFT_CYAN :
+                         (g_conn ? (uint32_t)TFT_GREEN : (uint32_t)TFT_RED));
+    display.drawString(g_demoMode ? "DEMO" : (g_conn ? "BLE OK" : "Suche..."), 66, 20);
 
-    display.setTextColor(0x404040);
+    display.setTextColor(g_demoMode ? (uint32_t)TFT_CYAN : (uint32_t)0x404040);
     char buf[16];
-    snprintf(buf, sizeof(buf), "IGN #%lu", (unsigned long)g_rxCnt);
+    if (g_demoMode) snprintf(buf, sizeof(buf), "SIM TEST");
+    else snprintf(buf, sizeof(buf), "IGN #%lu", (unsigned long)g_rxCnt);
     display.drawString(buf, 66, 34);
 
     display.setTextDatum(MR_DATUM);
@@ -1725,8 +1826,8 @@ static void drawAux() {
 }
 
 static void drawSettings() {
-    const char* labels[] = { "Buzzer", "Button tone", "BLE tone", "Error tone", "Touch nav", "Brightness" };
-    bool values[] = { g_buzzerEnabled, g_beepActions, g_beepBle, g_beepErrors, g_touchNavigation };
+    const char* labels[] = { "Buzzer", "Button tone", "BLE tone", "Error tone", "Touch nav", "Demo mode", "Brightness" };
+    bool values[] = { g_buzzerEnabled, g_beepActions, g_beepBle, g_beepErrors, g_touchNavigation, g_demoMode };
     display.fillRect(0, 44, 240, 196, TFT_BLACK);
     display.setTextDatum(MC_DATUM);
     display.setFont(&fonts::FreeSans12pt7b);
@@ -1735,16 +1836,17 @@ static void drawSettings() {
 
     display.setFont(&fonts::FreeSans9pt7b);
     for (uint8_t i = 0; i < kSettingCount; ++i) {
-        int y = 82 + i * 23;
+        int y = 78 + i * 20;
         display.setTextDatum(ML_DATUM);
         display.setTextColor(i == g_settingIndex ? (uint32_t)TFT_ORANGE : (uint32_t)TFT_DARKGREY);
         display.drawString(i == g_settingIndex ? ">" : " ", 25, y);
         display.drawString(labels[i], 43, y);
         display.setTextDatum(MR_DATUM);
         char value[8];
-        if (i < 5) {
+        if (i < 6) {
             snprintf(value, sizeof(value), "%s", values[i] ? "ON" : "OFF");
-            display.setTextColor(values[i] ? (uint32_t)TFT_GREEN : (uint32_t)TFT_DARKGREY);
+            display.setTextColor(i == 5 && values[i] ? (uint32_t)TFT_CYAN :
+                                 (values[i] ? (uint32_t)TFT_GREEN : (uint32_t)TFT_DARKGREY));
         } else {
             snprintf(value, sizeof(value), "%u", g_brightness);
             display.setTextColor(TFT_SKYBLUE);
@@ -1757,11 +1859,13 @@ static void drawTune() {
     display.fillRect(0, 44, 240, 196, TFT_BLACK);
     display.setTextDatum(MC_DATUM);
     display.setFont(&fonts::FreeSans12pt7b);
-    display.setTextColor(TFT_RED);
-    display.drawString("LIVE TUNE", 120, 58);
+    display.setTextColor(g_demoMode ? (uint32_t)TFT_CYAN : (uint32_t)TFT_RED);
+    display.drawString(g_demoMode ? "DEMO TUNE" : "LIVE TUNE", 120, 58);
 
-    const char* state = g_tuneActive ? "LIVE" : (g_tuneArmed ? "ARMED" : "LOCKED");
-    uint32_t stateColor = g_tuneActive ? (uint32_t)TFT_RED :
+    const char* state = g_tuneActive ? (g_demoMode ? "SIM LIVE" : "LIVE") :
+                        (g_tuneArmed ? (g_demoMode ? "SIM ARMED" : "ARMED") : "LOCKED");
+    uint32_t stateColor = g_demoMode ? (uint32_t)TFT_CYAN :
+                          g_tuneActive ? (uint32_t)TFT_RED :
                           g_tuneArmed ? (uint32_t)TFT_ORANGE :
                                         (uint32_t)TFT_DARKGREY;
     display.setFont(&fonts::Font4);
@@ -1808,6 +1912,10 @@ static void activateSetting() {
             g_touchDown = false;
             break;
         case 5:
+            if (g_demoMode) stopDemoMode("DEMO AUS", true);
+            else startDemoMode();
+            break;
+        case 6:
             g_brightness = g_brightness < 120 ? 140 : (g_brightness < 180 ? 200 : (g_brightness < 230 ? 255 : 80));
             display.setBrightness(g_brightness);
             break;
@@ -1880,6 +1988,8 @@ static void handleButton() {
             } else if (tuneSendToggle()) {
                 g_tuneArmedAt = 0;
             }
+        } else if (g_demoMode) {
+            pushLog("DEMO: kein Read");
         } else {
             g_readRequested = true;
             pushLog("Read angefragt");
@@ -1932,6 +2042,7 @@ void setup() {
 
 void loop() {
     pollSerialCommands();
+    serviceDemoMode();
     maintainWifi();
     serviceBuzzer();
     serviceScanRetry();
@@ -1947,16 +2058,16 @@ void loop() {
         beep(BEEP_ERROR);
     }
 
-    if (doConnect) { doConnect = false; connectBLE(); }
+    if (!g_demoMode && doConnect) { doConnect = false; connectBLE(); }
 
-    if (g_readRequested && !g_readBusy) {
+    if (!g_demoMode && g_readRequested && !g_readBusy) {
         g_readRequested = false;
         runReadOnlyDump();
     }
 
     // The original 123\TUNE+ Android app pings BLE devices every 1650 ms.
     static uint32_t lastPing = 0;
-    if (g_conn && millis() - lastPing >= 1650) {
+    if (!g_demoMode && g_conn && millis() - lastPing >= 1650) {
         lastPing = millis();
         sendRaytacPing();
     }
@@ -1971,14 +2082,14 @@ void loop() {
     }
 
     static uint32_t lastLive = 0;
-    if (g_conn && g_rxCnt > 0 && g_rpm > kLogMinRpm && millis() - lastLive >= 500) {
+    if (!g_demoMode && g_conn && g_rxCnt > 0 && g_rpm > kLogMinRpm && millis() - lastLive >= 500) {
         lastLive = millis();
         printLiveSummary();
         appendLiveCsv();
     }
 
     drawStatus();
-    if (g_rxCnt == 0 && (g_page == PAGE_MAIN || g_page == PAGE_AUX)) {
+    if (!g_demoMode && g_rxCnt == 0 && (g_page == PAGE_MAIN || g_page == PAGE_AUX)) {
         drawLog();
     } else if (g_page == PAGE_MAIN) {
         drawMain();

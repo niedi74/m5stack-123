@@ -114,6 +114,7 @@ lib_deps =
 | Encoder-Knopf kurz drücken | Seiten `ADV`, `T/V`, `SETTINGS`, `TUNE` wechseln |
 | Display antippen | Standardmäßig deaktiviert; optional nur Wechsel `ADV` / `T/V` |
 | `SETTINGS` | Töne (ab Werk `OFF`), Touch-Navigation und Helligkeit einstellen |
+| `SETTINGS` -> `Demo mode` | Im Stand simulierte Live-Werte und Bedienung testen |
 | **Hauptansicht** | Zündvoreilung (orange, oben) + RPM (weiß, unten) |
 | **Aux-Ansicht** | Temperatur (cyan, oben) + Spannung (gelb, unten) |
 | BLE-Status oben links | grün = verbunden, rot = Suche läuft |
@@ -121,6 +122,21 @@ lib_deps =
 Im Fahrbetrieb gilt: Wenn bei mehr als `650 RPM` noch kein Home-WLAN
 verbunden ist, schaltet die Firmware WLAN und Setup-AP still aus. Dadurch
 stören keine WiFi-Retry-Meldungen die Anzeige während der Fahrt.
+
+### Demo-Modus fuer Standtests
+
+Im Menue `SETTINGS` kann `Demo mode` per Long-Press eingeschaltet werden.
+Das Display kennzeichnet ihn deutlich mit `DEMO` und `SIM TEST` und zeigt
+auf der `ADV`-Hauptseite simulierte Werte fuer RPM, Zuendung, MAP,
+Temperatur und Spannung. Beim Ausschalten kehrt es ebenfalls zu `ADV` zurueck.
+
+- Die `TUNE`-Seite kann im Demo-Modus inklusive ARM, Start, +/- und Exit
+  ausprobiert werden, sendet dabei aber keine Befehle an die 123Tune+.
+- Simulierte Werte werden nicht in das Fahrtlog geschrieben und loesen keine
+  WiFi-Abschaltung wegen hoher RPM aus.
+- Der Modus ist nicht dauerhaft gespeichert, endet bei einem echten
+  BLE-Connect und ist nach einem Neustart wieder `OFF`.
+- Fuer Diagnose per USB stehen `demo_on`, `demo_status` und `demo_off` bereit.
 
 ---
 
