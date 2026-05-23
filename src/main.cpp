@@ -2015,15 +2015,15 @@ static void drawTune() {
 
     char buf[18];
     snprintf(buf, sizeof(buf), "%+d", g_tuneSteps);
-    display.setFont(&fonts::Font7);
+    display.setFont(&fonts::FreeSans24pt7b);
     display.setTextColor(g_tuneSteps > 0 ? (uint32_t)TFT_RED :
                          g_tuneSteps < 0 ? (uint32_t)TFT_SKYBLUE :
                                            (uint32_t)TFT_ORANGE);
-    display.drawString(buf, 120, 160);
+    display.drawString(buf, 120, 154);
     snprintf(buf, sizeof(buf), "ADV %.1f   RPM %d", (float)g_adv, (int)g_rpm);
-    display.setFont(&fonts::FreeSans9pt7b);
+    display.setFont(&fonts::FreeSans12pt7b);
     display.setTextColor(TFT_DARKGREY);
-    display.drawString(buf, 120, 215);
+    display.drawString(buf, 120, 202);
 }
 
 static void changeSettingSelection(int dir) {
