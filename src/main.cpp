@@ -2023,7 +2023,7 @@ static void drawTune() {
     snprintf(buf, sizeof(buf), "ADV %.1f   RPM %d", (float)g_adv, (int)g_rpm);
     display.setFont(&fonts::FreeSans12pt7b);
     display.setTextColor(TFT_DARKGREY);
-    display.drawString(buf, 120, 202);
+    display.drawString(buf, 120, 188);
 }
 
 static void changeSettingSelection(int dir) {
