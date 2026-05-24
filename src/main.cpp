@@ -81,7 +81,7 @@ static volatile float    g_map   = 0;
 static volatile float    g_cur   = 0;
 static volatile bool     g_conn  = false;
 static volatile uint32_t g_rxCnt = 0;
-enum UiPage : uint8_t { PAGE_MAIN, PAGE_AUX, PAGE_SETTINGS, PAGE_TUNE, PAGE_COUNT };
+enum UiPage : uint8_t { PAGE_MAIN, PAGE_AUX, PAGE_SETTINGS, PAGE_SETTINGS2, PAGE_TUNE, PAGE_COUNT };
 enum BeepKind : uint8_t { BEEP_ACTION, BEEP_BLE, BEEP_ERROR };
 
 static UiPage            g_page = PAGE_MAIN;
@@ -102,6 +102,7 @@ static bool              g_beepErrors = false;
 static bool              g_touchNavigation = false;
 static bool              g_demoMode = false;
 static bool              g_batteryHoldEnabled = true;
+static bool              g_wifiHomeApEnabled = false;
 static uint8_t           g_brightness = 200;
 static uint8_t           g_rotationQuarterTurns = 0;
 static uint32_t          g_beepUntil = 0;
@@ -119,8 +120,9 @@ static constexpr float kLogMinRpm = 650.0f;    // suppress ignition/start-only n
 static constexpr int kTuneMaxSteps = 10;       // temporary test correction limit in each direction
 static constexpr uint32_t kTuneArmTimeoutMs = 30000;  // ARM expires unless LIVE is confirmed
 static constexpr uint8_t kBuzzerChannel = 6;
-static constexpr uint8_t kSettingCount = 9;
-static constexpr uint8_t kUiSettingsVersion = 2;  // v2 adds persisted battery power hold; sounds stay off by default.
+static constexpr uint8_t kSettingCountMain = 6;
+static constexpr uint8_t kSettingCountSystem = 4;
+static constexpr uint8_t kUiSettingsVersion = 3;  // v3 adds WiFi Home+AP mode; sounds stay off by default.
 static constexpr uint8_t kDisplayBaseRotation = 2;  // Existing upright installation is the 0 deg reference.
 static constexpr uint32_t kScanWindowMs = 10000;
 static constexpr uint32_t kScanPauseMs[] = { 5000, 10000, 20000, 30000 };
@@ -429,9 +431,18 @@ static const char* pageName() {
     switch (g_page) {
         case PAGE_AUX: return "T/V";
         case PAGE_SETTINGS: return "SET";
+        case PAGE_SETTINGS2: return "SET2";
         case PAGE_TUNE: return "TUNE";
         default: return "ADV";
     }
+}
+
+static bool isSettingsPage() {
+    return g_page == PAGE_SETTINGS || g_page == PAGE_SETTINGS2;
+}
+
+static uint8_t settingCountForPage() {
+    return g_page == PAGE_SETTINGS2 ? kSettingCountSystem : kSettingCountMain;
 }
 
 static void stopBeep() {
@@ -478,6 +489,7 @@ static void saveUiSettings() {
     prefs.putBool("beep_err", g_beepErrors);
     prefs.putBool("touch_nav", g_touchNavigation);
     prefs.putBool("bat_hold", g_batteryHoldEnabled);
+    prefs.putBool("wifi_apsta", g_wifiHomeApEnabled);
     prefs.putUChar("bright", g_brightness);
     prefs.putUChar("rot_q", g_rotationQuarterTurns);
 }
@@ -492,6 +504,7 @@ static void loadUiSettings() {
         g_beepErrors = false;
         g_touchNavigation = false;
         g_batteryHoldEnabled = true;
+        g_wifiHomeApEnabled = false;
         saveUiSettings();
     } else {
         g_buzzerEnabled = prefs.getBool("buzzer", false);
@@ -500,6 +513,7 @@ static void loadUiSettings() {
         g_beepErrors = prefs.getBool("beep_err", false);
         g_touchNavigation = prefs.getBool("touch_nav", false);
         g_batteryHoldEnabled = prefs.getBool("bat_hold", true);
+        g_wifiHomeApEnabled = prefs.getBool("wifi_apsta", false);
     }
     if (g_brightness < 40) g_brightness = 40;
     applyPowerHold();
@@ -515,6 +529,7 @@ static void advancePage() {
     g_encoderAccum = 0;
     UiPage oldPage = g_page;
     g_page = static_cast<UiPage>((static_cast<uint8_t>(g_page) + 1) % PAGE_COUNT);
+    if (isSettingsPage() && g_settingIndex >= settingCountForPage()) g_settingIndex = 0;
     if (oldPage == PAGE_TUNE && g_tuneArmed && !g_tuneActive) {
         g_tuneArmed = false;
         g_tuneArmedAt = 0;
@@ -665,6 +680,7 @@ static void sendLogFile(const char* path, const char* downloadName) {
 }
 
 static String wifiModeLabel() {
+    if (WiFi.status() == WL_CONNECTED && g_wifiAp) return "Home WiFi + AP";
     if (WiFi.status() == WL_CONNECTED) return "Home WiFi";
     if (g_wifiAp) return "Setup AP";
     if (g_wifiQuietOff) return "Offline (quiet)";
@@ -682,6 +698,9 @@ static bool wifiSetupBlockedWhileDriving() {
 }
 
 static void handleUiSetting();
+static bool startSetupAp(bool keepSta = false);
+static void stopSetupAp(bool keepStaMode = true);
+static void setWifiHomeApEnabled(bool enabled);
 
 static void handleRoot() {
     String ip = wifiIpLabel();
@@ -693,7 +712,7 @@ static void handleRoot() {
     String tuneState = g_tuneActive ? (g_demoMode ? "SIM LIVE" : "LIVE") :
                        (g_tuneArmed ? (g_demoMode ? "SIM ARMED" : "ARMED") : "LOCKED");
     String html;
-    html.reserve(14000);
+    html.reserve(15500);
     html += "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>";
     html += "<title>M5Dial 123Tune</title><style>";
     html += "body{font-family:system-ui,Segoe UI,Arial;margin:24px;background:#111;color:#eee}";
@@ -731,11 +750,14 @@ static void handleRoot() {
     html += "<div id='set2' class='item'><span>BLE tone</span><span id='blebeep' class='" + String(g_beepBle ? "on'>ON" : "off'>OFF") + "</span></div>";
     html += "<div id='set3' class='item'><span>Error tone</span><span id='errbeep' class='" + String(g_beepErrors ? "on'>ON" : "off'>OFF") + "</span></div>";
     html += "<div id='set4' class='item'><span>Touch nav</span><span id='touchnav' class='" + String(g_touchNavigation ? "on'>ON" : "off'>OFF") + "</span></div>";
-    html += "<div id='set5' class='item'><span>Demo mode</span><span id='demomode' class='" + String(g_demoMode ? "demo'>ON" : "off'>OFF") + "</span></div>";
-    html += "<div id='set6' class='item'><span>Bat power</span><span id='bathold' class='" + String(g_batteryHoldEnabled ? "on'>ON" : "off'>OFF") + "</span></div>";
-    html += "<div id='set7' class='item'><span>Brightness</span><span id='bright'>" + String(g_brightness) + "</span></div>";
-    html += "<div id='set8' class='item'><span>Rotation</span><span id='rotation'>" + String(displayRotationDegrees()) + " deg</span></div></div></div>";
-    html += "<div class='dial'><div class='top'><span id='ble4' class='ble'>" + liveText + "</span><span id='ign4' class='ign'>" + ignitionText + "</span><span class='mode warn'>TUNE</span></div>";
+    html += "<div id='set5' class='item'><span>Demo mode</span><span id='demomode' class='" + String(g_demoMode ? "demo'>ON" : "off'>OFF") + "</span></div></div></div>";
+    html += "<div class='dial'><div class='top'><span id='ble4' class='ble'>" + liveText + "</span><span id='ign4' class='ign'>" + ignitionText + "</span><span class='mode'>SET2</span></div>";
+    html += "<div class='screen-title'>SYSTEM</div><div class='items'>";
+    html += "<div id='sys0' class='item'><span>Bat power</span><span id='bathold' class='" + String(g_batteryHoldEnabled ? "on'>ON" : "off'>OFF") + "</span></div>";
+    html += "<div id='sys1' class='item'><span>Home+AP</span><span id='wifiapsta' class='" + String(g_wifiHomeApEnabled ? "on'>ON" : "off'>OFF") + "</span></div>";
+    html += "<div id='sys2' class='item'><span>Brightness</span><span id='bright'>" + String(g_brightness) + "</span></div>";
+    html += "<div id='sys3' class='item'><span>Rotation</span><span id='rotation'>" + String(displayRotationDegrees()) + " deg</span></div></div></div>";
+    html += "<div class='dial'><div class='top'><span id='ble5' class='ble'>" + liveText + "</span><span id='ign5' class='ign'>" + ignitionText + "</span><span class='mode warn'>TUNE</span></div>";
     html += "<div id='tunetitle' class='screen-title " + String(g_demoMode ? "demo" : "warn") + "'>" + tuneTitle + "</div><div id='tunestate' class='tunestate safe'>" + tuneState + "</div>";
     html += "<div id='tunehelp' class='tunehelp'>Hold on device 2s to ARM</div><div id='tunestep' class='tunestep orange'>+0</div>";
     html += "<div id='tunemetric' class='tunemetric'>ADV 0.0 deg | RPM 0</div></div>";
@@ -743,6 +765,7 @@ static void handleRoot() {
     html += "<div class='box'><div>Mode: " + mode + "</div><div>IP: " + ip + "</div>";
     html += "<div>Time: " + timeText + " (" + String(g_timeValid ? g_timeSource : "boot") + ")</div>";
     html += "<div>GW: " + WiFi.gatewayIP().toString() + " / DNS: " + WiFi.dnsIP().toString() + "</div>";
+    html += "<div>AP: " + String(g_wifiAp ? "ON 192.168.4.1" : "OFF") + " / Mode: " + String(g_wifiHomeApEnabled ? "Home+AP" : "Fallback") + "</div>";
     html += "<div>RTC: " + String(g_rtcOk ? (g_rtcValid ? "valid" : "seen") : "missing") + " / NTP polls: " + String(g_ntpPolls) + "</div>";
     html += "<div>BLE: " + String(g_demoMode ? "DEMO - no device TX" : (g_conn ? "connected" : "searching")) + "</div>";
     html += "<div>RPM: " + String((int)g_rpm) + " / ADV: " + String((float)g_adv, 1) + " / MAP: " + String(mapBar(), 2) + " bar</div></div>";
@@ -754,6 +777,7 @@ static void handleRoot() {
     html += "<label class='toggle-row'><span>Touch nav</span><input id='ctl_touch' type='checkbox' onchange=\"setFlag('touch_nav',this.checked)\"></label>";
     html += "<label class='toggle-row'><span>Demo mode</span><input id='ctl_demo' type='checkbox' onchange=\"setFlag('demo',this.checked)\"></label>";
     html += "<label class='toggle-row'><span>Battery power</span><input id='ctl_bathold' type='checkbox' onchange=\"setFlag('battery_hold',this.checked)\"></label>";
+    html += "<label class='toggle-row'><span>Home WiFi + AP</span><input id='ctl_wifiapsta' type='checkbox' onchange=\"setFlag('wifi_home_ap',this.checked)\"></label>";
     html += "<label class='slider-row'><span>Brightness <output id='ctl_bright_value'>" + String(g_brightness) + "</output></span><input id='ctl_bright' type='range' min='40' max='255' step='5' value='" + String(g_brightness) + "' onchange=\"setUi('brightness',this.value)\"></label>";
     html += "<label class='select-row'><span>Rotation</span><select id='ctl_rotation' onchange=\"setUi('rotation',this.value)\"><option value='0'>0 deg</option><option value='90'>90 deg</option><option value='180'>180 deg</option><option value='270'>270 deg</option></select></label>";
     html += "<p id='ui_result' class='ui-result'></p></div></div>";
@@ -780,18 +804,19 @@ static void handleRoot() {
     html += "adv.textContent=Number(d.adv).toFixed(1);adv.className='adv '+c(d.tune_steps);";
     html += "tunelbl.textContent=d.tune_active?('TUNE '+(d.tune_steps>=0?'+':'')+d.tune_steps):'ADVANCE  deg';tunelbl.className='tunelbl '+c(d.tune_steps);";
     html += "map.textContent=Number(d.map_bar).toFixed(2);rpm.textContent=d.rpm;aux1.textContent=d.temp;aux2.textContent=Number(d.volt).toFixed(1);";
-    html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);yn('demomode',d.demo);if(d.demo)demomode.className='demo';yn('bathold',d.battery_hold);bright.textContent=d.brightness;rotation.textContent=d.rotation_deg+' deg';";
-    html += "ctl_buzzer.checked=d.buzzer;ctl_button.checked=d.beep_actions;ctl_ble.checked=d.beep_ble;ctl_error.checked=d.beep_errors;ctl_touch.checked=d.touch_nav;ctl_demo.checked=d.demo;ctl_bathold.checked=d.battery_hold;ctl_bright.value=d.brightness;ctl_bright_value.textContent=d.brightness;ctl_rotation.value=String(d.rotation_deg);";
-    html += "ctl_buzzer.disabled=d.settings_locked&&!d.buzzer;ctl_button.disabled=d.settings_locked&&!d.beep_actions;ctl_ble.disabled=d.settings_locked&&!d.beep_ble;ctl_error.disabled=d.settings_locked&&!d.beep_errors;ctl_touch.disabled=d.settings_locked&&!d.touch_nav;ctl_demo.disabled=d.settings_locked&&!d.demo;ctl_bathold.disabled=d.settings_locked;ctl_bright.disabled=d.settings_locked;ctl_rotation.disabled=d.settings_locked;";
-    html += "for(let i=0;i<9;i++)document.getElementById('set'+i).className='item '+(i==d.setting_index?'sel':'');";
+    html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);yn('demomode',d.demo);if(d.demo)demomode.className='demo';yn('bathold',d.battery_hold);yn('wifiapsta',d.wifi_home_ap);bright.textContent=d.brightness;rotation.textContent=d.rotation_deg+' deg';";
+    html += "ctl_buzzer.checked=d.buzzer;ctl_button.checked=d.beep_actions;ctl_ble.checked=d.beep_ble;ctl_error.checked=d.beep_errors;ctl_touch.checked=d.touch_nav;ctl_demo.checked=d.demo;ctl_bathold.checked=d.battery_hold;ctl_wifiapsta.checked=d.wifi_home_ap;ctl_bright.value=d.brightness;ctl_bright_value.textContent=d.brightness;ctl_rotation.value=String(d.rotation_deg);";
+    html += "ctl_buzzer.disabled=d.settings_locked&&!d.buzzer;ctl_button.disabled=d.settings_locked&&!d.beep_actions;ctl_ble.disabled=d.settings_locked&&!d.beep_ble;ctl_error.disabled=d.settings_locked&&!d.beep_errors;ctl_touch.disabled=d.settings_locked&&!d.touch_nav;ctl_demo.disabled=d.settings_locked&&!d.demo;ctl_bathold.disabled=d.settings_locked;ctl_wifiapsta.disabled=d.settings_locked;ctl_bright.disabled=d.settings_locked;ctl_rotation.disabled=d.settings_locked;";
+    html += "for(let i=0;i<6;i++)document.getElementById('set'+i).className='item '+(d.page=='SET'&&i==d.setting_index?'sel':'');";
+    html += "for(let i=0;i<4;i++)document.getElementById('sys'+i).className='item '+(d.page=='SET2'&&i==d.setting_index?'sel':'');";
     html += "tunetitle.textContent=d.demo?'DEMO TUNE':'LIVE TUNE';tunetitle.className='screen-title '+(d.demo?'demo':'warn');";
     html += "let st=d.tune_active?(d.demo?'SIM LIVE':'LIVE'):(d.tune_armed?(d.demo?'SIM ARMED':'ARMED'):'LOCKED');tunestate.textContent=st;tunestate.className='tunestate '+(d.demo?'demo':(d.tune_active?'warn':(d.tune_armed?'safe':'off')));";
     html += "tunehelp.textContent=d.tune_active?'Rotate on device +/-; hold 2s to EXIT':(d.tune_armed?'Hold on device 2s to START':'Hold on device 2s to ARM');";
     html += "tunestep.textContent=(d.tune_steps>=0?'+':'')+d.tune_steps;tunestep.className='tunestep '+c(d.tune_steps);tunemetric.textContent='ADV '+Number(d.adv).toFixed(1)+' deg | RPM '+d.rpm;}";
     html += "async function upd(){try{let r=await fetch('/state',{cache:'no-store'});let d=await r.json();";
     html += "ble.textContent=d.demo?'DEMO':(d.ble?'BLE OK':'Suche...');ble.style.color=d.demo?'#00d7db':(d.ble?'#1ec85a':'#e33');";
-    html += "ble2.textContent=ble.textContent;ble2.style.color=ble.style.color;ble3.textContent=ble.textContent;ble3.style.color=ble.style.color;ble4.textContent=ble.textContent;ble4.style.color=ble.style.color;";
-    html += "ign.textContent=d.demo?'SIM TEST':('IGN #'+d.rx);ign2.textContent=ign.textContent;ign3.textContent=ign.textContent;ign4.textContent=ign.textContent;paint(d);}catch(e){}}";
+    html += "ble2.textContent=ble.textContent;ble2.style.color=ble.style.color;ble3.textContent=ble.textContent;ble3.style.color=ble.style.color;ble4.textContent=ble.textContent;ble4.style.color=ble.style.color;ble5.textContent=ble.textContent;ble5.style.color=ble.style.color;";
+    html += "ign.textContent=d.demo?'SIM TEST':('IGN #'+d.rx);ign2.textContent=ign.textContent;ign3.textContent=ign.textContent;ign4.textContent=ign.textContent;ign5.textContent=ign.textContent;paint(d);}catch(e){}}";
     html += "upd();setInterval(upd,2000);</script>";
     html += "</body></html>";
     web.send(200, "text/html", html);
@@ -820,6 +845,8 @@ static void handleState() {
     json += "\"beep_errors\":" + String(g_beepErrors ? "true" : "false") + ",";
     json += "\"touch_nav\":" + String(g_touchNavigation ? "true" : "false") + ",";
     json += "\"battery_hold\":" + String(g_batteryHoldEnabled ? "true" : "false") + ",";
+    json += "\"wifi_home_ap\":" + String(g_wifiHomeApEnabled ? "true" : "false") + ",";
+    json += "\"wifi_ap\":" + String(g_wifiAp ? "true" : "false") + ",";
     json += "\"brightness\":" + String(g_brightness) + ",";
     json += "\"rotation_deg\":" + String(displayRotationDegrees());
     json += ",\"settings_locked\":" + String(wifiSetupBlockedWhileDriving() ? "true" : "false");
@@ -885,17 +912,21 @@ static void stopWps() {
     g_wpsActive = false;
 }
 
-static void disableWifiQuiet(const char* reason) {
-    bool hadAp = g_wifiAp;
-    g_wifiQuietOff = true;
-    g_wifiAp = false;
-    g_wifiConnectStartedAt = 0;
-    stopWps();
+static void stopSetupAp(bool keepStaMode) {
     if (g_captiveActive) {
         dns.stop();
         g_captiveActive = false;
     }
-    if (hadAp) WiFi.softAPdisconnect(true);
+    if (g_wifiAp) WiFi.softAPdisconnect(true);
+    g_wifiAp = false;
+    if (keepStaMode && WiFi.status() == WL_CONNECTED) WiFi.mode(WIFI_STA);
+}
+
+static void disableWifiQuiet(const char* reason) {
+    g_wifiQuietOff = true;
+    g_wifiConnectStartedAt = 0;
+    stopWps();
+    stopSetupAp(false);
     WiFi.disconnect(true, false);
     WiFi.mode(WIFI_OFF);
     pushLog("%s", reason);
@@ -956,13 +987,8 @@ static void onWifiEvent(WiFiEvent_t event, arduino_event_info_t info) {
         case ARDUINO_EVENT_WIFI_STA_GOT_IP:
             g_wifiQuietOff = false;
             g_wifiConnectStartedAt = 0;
-            if (g_wifiAp) {
-                dns.stop();
-                g_captiveActive = false;
-                WiFi.softAPdisconnect(true);
-                g_wifiAp = false;
-                WiFi.mode(WIFI_STA);
-            }
+            if (g_wifiAp && !g_wifiHomeApEnabled) stopSetupAp(true);
+            if (g_wifiHomeApEnabled && !g_wifiAp && !wifiSetupBlockedWhileDriving()) startSetupAp(true);
             if (g_saveWifiAfterWps) {
                 String ssid = WiFi.SSID();
                 String psk = WiFi.psk();
@@ -978,7 +1004,7 @@ static void onWifiEvent(WiFiEvent_t event, arduino_event_info_t info) {
             startNtpIfNeeded();
             break;
         case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
-            if (g_haveSavedWifi && !g_wifiAp && !g_wifiQuietOff &&
+            if (g_haveSavedWifi && (!g_wifiAp || g_wifiHomeApEnabled) && !g_wifiQuietOff &&
                 g_wifiConnectStartedAt == 0) {
                 g_wifiConnectStartedAt = millis();
                 WiFi.reconnect();
@@ -1009,19 +1035,24 @@ static void onWifiEvent(WiFiEvent_t event, arduino_event_info_t info) {
 }
 
 
-static void startSetupAp() {
-    if (g_wifiAp) return;
-    if (wifiSetupBlockedWhileDriving()) {
+static bool startSetupAp(bool keepSta) {
+    if (g_wifiAp) return true;
+    if (wifiSetupBlockedWhileDriving() && !keepSta) {
         disableWifiQuiet("WiFi Fahrt AUS");
-        return;
+        return false;
     }
     g_wifiQuietOff = false;
-    g_wifiConnectStartedAt = 0;
+    if (!keepSta) g_wifiConnectStartedAt = 0;
     g_wifiAp = true;
-    WiFi.disconnect(true, true);
-    delay(100);
-    WiFi.mode(WIFI_AP);
-    WiFi.setSleep(false);
+    if (keepSta) {
+        WiFi.mode(WIFI_AP_STA);
+    } else {
+        WiFi.disconnect(true, true);
+        delay(100);
+        WiFi.mode(WIFI_AP);
+    }
+    // ESP32-S3 aborts AP+STA with Bluetooth active when modem sleep is forced off.
+    WiFi.setSleep(keepSta);
     WiFi.softAPConfig(IPAddress(192, 168, 4, 1),
                       IPAddress(192, 168, 4, 1),
                       IPAddress(255, 255, 255, 0));
@@ -1029,7 +1060,18 @@ static void startSetupAp() {
     WiFi.softAP("M5Dial-123-Setup", nullptr, 6, 0, 4);
     dns.start(53, "*", IPAddress(192, 168, 4, 1));
     g_captiveActive = true;
-    pushLog("AP 192.168.4.1");
+    pushLog(keepSta ? "Home+AP 192.168.4.1" : "AP 192.168.4.1");
+    return true;
+}
+
+static void setWifiHomeApEnabled(bool enabled) {
+    g_wifiHomeApEnabled = enabled;
+    if (wifiSetupBlockedWhileDriving()) return;
+    if (enabled) {
+        if (WiFi.status() == WL_CONNECTED) startSetupAp(true);
+    } else if (WiFi.status() == WL_CONNECTED && g_wifiAp) {
+        stopSetupAp(true);
+    }
 }
 
 static void setupWifi() {
@@ -1037,7 +1079,7 @@ static void setupWifi() {
     loadUiSettings();
     WiFi.onEvent(onWifiEvent);
     WiFi.setHostname("m5dial-123");
-    WiFi.mode(WIFI_STA);
+    WiFi.mode(g_wifiHomeApEnabled ? WIFI_AP_STA : WIFI_STA);
 
     String ssid = prefs.getString("ssid", "");
     String pass = prefs.getString("pass", "");
@@ -1055,6 +1097,7 @@ static void setupWifi() {
         WiFi.begin(ssid.c_str(), pass.c_str());
         g_wifiConnectStartedAt = millis();
         pushLog("WiFi connect...");
+        if (g_wifiHomeApEnabled) startSetupAp(true);
     } else {
         startSetupAp();
     }
@@ -1075,6 +1118,8 @@ static void maintainWifi() {
     if (g_wifiQuietOff) return;
 
     if (WiFi.status() == WL_CONNECTED) {
+        if (g_wifiHomeApEnabled && !g_wifiAp && !wifiSetupBlockedWhileDriving()) startSetupAp(true);
+        if (!g_wifiHomeApEnabled && g_wifiAp) stopSetupAp(true);
         static bool announced = false;
         if (!announced) {
             announced = true;
@@ -1089,7 +1134,7 @@ static void maintainWifi() {
         return;
     }
 
-    if (g_wifiAp) return;
+    if (g_wifiAp && !g_wifiHomeApEnabled) return;
 
     if (g_haveSavedWifi && g_wifiConnectStartedAt != 0 &&
         millis() - g_wifiConnectStartedAt >= kWifiConnectWindowMs) {
@@ -1101,10 +1146,13 @@ static void maintainWifi() {
 static void printWifiStatus() {
     String ssid = prefs.getString("ssid", "");
     String mode = wifiModeLabel();
-    Serial.printf("[WIFI] mode=%s conn=%d ip=%s gw=%s dns=%s saved_ssid=%s static=%d saved_ip=%s time=%s rtc=%d/%d ntp=%d polls=%d\n",
+    Serial.printf("[WIFI] mode=%s conn=%d ip=%s ap=%d ap_ip=%s home_ap=%d gw=%s dns=%s saved_ssid=%s static=%d saved_ip=%s time=%s rtc=%d/%d ntp=%d polls=%d\n",
                   mode.c_str(),
                   WiFi.status() == WL_CONNECTED ? 1 : 0,
                   WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString().c_str() : "-",
+                  g_wifiAp ? 1 : 0,
+                  g_wifiAp ? WiFi.softAPIP().toString().c_str() : "-",
+                  g_wifiHomeApEnabled ? 1 : 0,
                   WiFi.gatewayIP().toString().c_str(),
                   WiFi.dnsIP().toString().c_str(),
                   ssid.length() ? ssid.c_str() : "<none>",
@@ -1205,7 +1253,7 @@ static void handleUiSetting() {
     bool isFlag = setting == "buzzer" || setting == "beep_actions" ||
                   setting == "beep_ble" || setting == "beep_errors" ||
                   setting == "touch_nav" || setting == "demo" ||
-                  setting == "battery_hold";
+                  setting == "battery_hold" || setting == "wifi_home_ap";
 
     if (setting.length() == 0 || value.length() == 0) {
         web.send(400, "text/plain", "Missing setting or value");
@@ -1217,6 +1265,10 @@ static void handleUiSetting() {
     }
     if (wifiSetupBlockedWhileDriving() && setting == "battery_hold") {
         web.send(409, "text/plain", "Battery power setting locked while RPM > 650");
+        return;
+    }
+    if (wifiSetupBlockedWhileDriving() && setting == "wifi_home_ap") {
+        web.send(409, "text/plain", "WiFi AP mode locked while RPM > 650");
         return;
     }
     if (wifiSetupBlockedWhileDriving() && (!isFlag || enabled)) {
@@ -1239,6 +1291,8 @@ static void handleUiSetting() {
     } else if (setting == "battery_hold") {
         g_batteryHoldEnabled = enabled;
         applyPowerHold();
+    } else if (setting == "wifi_home_ap") {
+        setWifiHomeApEnabled(enabled);
     } else if (setting == "demo") {
         if (enabled && !startDemoMode()) {
             web.send(409, "text/plain", "Demo blocked while real BLE or Tune is active");
@@ -1280,7 +1334,7 @@ static void handleSerialCommand(String line) {
     }
 
     if (line.equalsIgnoreCase("ui_status")) {
-        Serial.printf("[UI] page=%s demo=%d buzzer=%d button=%d ble=%d error=%d touch_nav=%d bat_hold=%d brightness=%u rotation=%u\n",
+        Serial.printf("[UI] page=%s demo=%d buzzer=%d button=%d ble=%d error=%d touch_nav=%d bat_hold=%d wifi_home_ap=%d brightness=%u rotation=%u\n",
                       pageName(),
                       g_demoMode ? 1 : 0,
                       g_buzzerEnabled ? 1 : 0,
@@ -1289,6 +1343,7 @@ static void handleSerialCommand(String line) {
                       g_beepErrors ? 1 : 0,
                       g_touchNavigation ? 1 : 0,
                       g_batteryHoldEnabled ? 1 : 0,
+                      g_wifiHomeApEnabled ? 1 : 0,
                       g_brightness,
                       displayRotationDegrees());
         return;
@@ -1361,6 +1416,17 @@ static void handleSerialCommand(String line) {
         applyPowerHold();
         saveUiSettings();
         Serial.printf("[UI] battery hold %s\n", g_batteryHoldEnabled ? "ON" : "OFF");
+        return;
+    }
+
+    if (line.equalsIgnoreCase("wifi_home_ap_on") || line.equalsIgnoreCase("wifi_home_ap_off")) {
+        if (wifiSetupBlockedWhileDriving()) {
+            Serial.println("[WIFI] Home+AP locked while RPM > 650");
+            return;
+        }
+        setWifiHomeApEnabled(line.equalsIgnoreCase("wifi_home_ap_on"));
+        saveUiSettings();
+        Serial.printf("[WIFI] Home+AP %s\n", g_wifiHomeApEnabled ? "ON" : "OFF");
         return;
     }
 
@@ -1561,7 +1627,7 @@ static void handleSerialCommand(String line) {
         return;
     }
 
-    Serial.println("[CMD] unknown. use: ui_status | demo_status | demo_on | demo_off | rotation_next | rotation_reset | buzzer_off | touch_off | battery_hold_on | battery_hold_off | wifi_status | wifi_off | wifi_ap | time_status | time_set <epoch> | tune_arm | tune_on | tune_up | tune_down | tune_zero | tune_off | tune_disarm | wifi_clear | wifi_dhcp | wifi <ssid> <pass> | wifi_static <ssid> <pass> <ip>");
+    Serial.println("[CMD] unknown. use: ui_status | demo_status | demo_on | demo_off | rotation_next | rotation_reset | buzzer_off | touch_off | battery_hold_on | battery_hold_off | wifi_home_ap_on | wifi_home_ap_off | wifi_status | wifi_off | wifi_ap | time_status | time_set <epoch> | tune_arm | tune_on | tune_up | tune_down | tune_zero | tune_off | tune_disarm | wifi_clear | wifi_dhcp | wifi <ssid> <pass> | wifi_static <ssid> <pass> <ip>");
 }
 
 static void pollSerialCommands() {
@@ -1994,28 +2060,35 @@ static void drawAux() {
 }
 
 static void drawSettings() {
-    const char* labels[] = { "Buzzer", "Button tone", "BLE tone", "Error tone", "Touch nav", "Demo mode", "Bat power", "Brightness", "Rotation" };
-    bool values[] = { g_buzzerEnabled, g_beepActions, g_beepBle, g_beepErrors, g_touchNavigation, g_demoMode, g_batteryHoldEnabled };
+    const bool systemPage = g_page == PAGE_SETTINGS2;
+    const char* labelsMain[] = { "Buzzer", "Button tone", "BLE tone", "Error tone", "Touch nav", "Demo mode" };
+    bool valuesMain[] = { g_buzzerEnabled, g_beepActions, g_beepBle, g_beepErrors, g_touchNavigation, g_demoMode };
+    const char* labelsSystem[] = { "Bat power", "Home+AP", "Brightness", "Rotation" };
+    bool valuesSystem[] = { g_batteryHoldEnabled, g_wifiHomeApEnabled };
+    uint8_t count = settingCountForPage();
     display.fillRect(0, 44, 240, 196, TFT_BLACK);
     display.setTextDatum(MC_DATUM);
     display.setFont(&fonts::FreeSans12pt7b);
     display.setTextColor(TFT_WHITE);
-    display.drawString("SETTINGS", 120, 58);
+    display.drawString(systemPage ? "SYSTEM" : "SETTINGS", 120, 58);
 
     display.setFont(&fonts::FreeSans9pt7b);
-    for (uint8_t i = 0; i < kSettingCount; ++i) {
+    for (uint8_t i = 0; i < count; ++i) {
         int y = 78 + i * 17;
         display.setTextDatum(ML_DATUM);
         display.setTextColor(i == g_settingIndex ? (uint32_t)TFT_ORANGE : (uint32_t)TFT_DARKGREY);
         display.drawString(i == g_settingIndex ? ">" : " ", 30, y);
-        display.drawString(labels[i], 43, y);
+        display.drawString(systemPage ? labelsSystem[i] : labelsMain[i], 43, y);
         display.setTextDatum(MR_DATUM);
-        char value[8];
-        if (i < 7) {
-            snprintf(value, sizeof(value), "%s", values[i] ? "ON" : "OFF");
-            display.setTextColor(i == 5 && values[i] ? (uint32_t)TFT_CYAN :
-                                 (values[i] ? (uint32_t)TFT_GREEN : (uint32_t)TFT_DARKGREY));
-        } else if (i == 7) {
+        char value[12];
+        if (!systemPage) {
+            snprintf(value, sizeof(value), "%s", valuesMain[i] ? "ON" : "OFF");
+            display.setTextColor(i == 5 && valuesMain[i] ? (uint32_t)TFT_CYAN :
+                                 (valuesMain[i] ? (uint32_t)TFT_GREEN : (uint32_t)TFT_DARKGREY));
+        } else if (i < 2) {
+            snprintf(value, sizeof(value), "%s", valuesSystem[i] ? "ON" : "OFF");
+            display.setTextColor(valuesSystem[i] ? (uint32_t)TFT_GREEN : (uint32_t)TFT_DARKGREY);
+        } else if (i == 2) {
             snprintf(value, sizeof(value), "%u", g_brightness);
             display.setTextColor(TFT_SKYBLUE);
         } else {
@@ -2063,13 +2136,46 @@ static void drawTune() {
 
 static void changeSettingSelection(int dir) {
     int next = static_cast<int>(g_settingIndex) + dir;
-    if (next < 0) next = kSettingCount - 1;
-    if (next >= kSettingCount) next = 0;
+    uint8_t count = settingCountForPage();
+    if (next < 0) next = count - 1;
+    if (next >= count) next = 0;
     g_settingIndex = static_cast<uint8_t>(next);
     beep(BEEP_ACTION);
 }
 
 static void activateSetting() {
+    if (g_page == PAGE_SETTINGS2) {
+        switch (g_settingIndex) {
+            case 0:
+                if (wifiSetupBlockedWhileDriving()) {
+                    pushLog("Bat lock Fahrt");
+                    break;
+                }
+                g_batteryHoldEnabled = !g_batteryHoldEnabled;
+                applyPowerHold();
+                break;
+            case 1:
+                if (wifiSetupBlockedWhileDriving()) {
+                    pushLog("WiFi AP lock");
+                    break;
+                }
+                setWifiHomeApEnabled(!g_wifiHomeApEnabled);
+                break;
+            case 2:
+                g_brightness = g_brightness < 120 ? 140 : (g_brightness < 180 ? 200 : (g_brightness < 230 ? 255 : 80));
+                display.setBrightness(g_brightness);
+                break;
+            case 3:
+                g_rotationQuarterTurns = (g_rotationQuarterTurns + 1) % 4;
+                applyDisplayRotation();
+                pushLog("Rotation %u deg", displayRotationDegrees());
+                break;
+        }
+        saveUiSettings();
+        if (g_buzzerEnabled) beep(BEEP_ACTION);
+        return;
+    }
+
     switch (g_settingIndex) {
         case 0:
             g_buzzerEnabled = !g_buzzerEnabled;
@@ -2085,23 +2191,6 @@ static void activateSetting() {
         case 5:
             if (g_demoMode) stopDemoMode("DEMO AUS", true);
             else startDemoMode();
-            break;
-        case 6:
-            if (wifiSetupBlockedWhileDriving()) {
-                pushLog("Bat lock Fahrt");
-                break;
-            }
-            g_batteryHoldEnabled = !g_batteryHoldEnabled;
-            applyPowerHold();
-            break;
-        case 7:
-            g_brightness = g_brightness < 120 ? 140 : (g_brightness < 180 ? 200 : (g_brightness < 230 ? 255 : 80));
-            display.setBrightness(g_brightness);
-            break;
-        case 8:
-            g_rotationQuarterTurns = (g_rotationQuarterTurns + 1) % 4;
-            applyDisplayRotation();
-            pushLog("Rotation %u deg", displayRotationDegrees());
             break;
     }
     saveUiSettings();
@@ -2133,20 +2222,20 @@ static void handleEncoder() {
     if (delta == 0) return;
 
     g_encoderAccum += delta;
-    const bool preciseUi = g_page == PAGE_SETTINGS || (g_page == PAGE_TUNE && g_tuneActive);
+    const bool preciseUi = isSettingsPage() || (g_page == PAGE_TUNE && g_tuneActive);
     const int8_t threshold = preciseUi ? 1 : 4;
     const uint32_t stepGuardMs = preciseUi ? 55 : 45;
     if (g_encoderAccum >= threshold) {
         g_encoderAccum = 0;
         if (millis() - lastStepAt < stepGuardMs) return;
         lastStepAt = millis();
-        if (g_page == PAGE_SETTINGS) changeSettingSelection(1);
+        if (isSettingsPage()) changeSettingSelection(1);
         else if (g_page == PAGE_TUNE && g_tuneActive) tuneStep(1);
     } else if (g_encoderAccum <= -threshold) {
         g_encoderAccum = 0;
         if (millis() - lastStepAt < stepGuardMs) return;
         lastStepAt = millis();
-        if (g_page == PAGE_SETTINGS) changeSettingSelection(-1);
+        if (isSettingsPage()) changeSettingSelection(-1);
         else if (g_page == PAGE_TUNE && g_tuneActive) tuneStep(-1);
     }
 }
@@ -2162,7 +2251,7 @@ static void handleButton() {
     uint32_t holdMs = g_page == PAGE_TUNE ? TUNE_HOLD_MS : LONG_PRESS_MS;
     if (btn == LOW && !longFired && millis() - pressTime >= holdMs) {
         longFired = true;
-        if (g_page == PAGE_SETTINGS) {
+        if (isSettingsPage()) {
             advancePage();
         } else if (g_page == PAGE_TUNE) {
             if (g_tuneActive) {
@@ -2189,7 +2278,7 @@ static void handleButton() {
         }
     }
     if (btn == HIGH && lastBtn == LOW && !longFired) {
-        if (g_page == PAGE_SETTINGS) activateSetting();
+        if (isSettingsPage()) activateSetting();
         else advancePage();
     }
     lastBtn = btn;
@@ -2290,7 +2379,7 @@ void loop() {
         drawMain();
     } else if (g_page == PAGE_AUX) {
         drawAux();
-    } else if (g_page == PAGE_SETTINGS) {
+    } else if (isSettingsPage()) {
         drawSettings();
     } else {
         drawTune();

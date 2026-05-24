@@ -134,6 +134,13 @@ Im Fahrbetrieb gilt: Wenn bei mehr als `650 RPM` noch kein Home-WLAN
 verbunden ist, schaltet die Firmware WLAN und Setup-AP still aus. Dadurch
 stören keine WiFi-Retry-Meldungen die Anzeige während der Fahrt.
 
+Die Einstellseiten sind aufgeteilt: `SETTINGS` enthaelt Toene,
+Touch-Navigation und Demo-Modus; `SYSTEM` enthaelt Akku-Power,
+`Home+AP`, Helligkeit und Rotation. `SYSTEM -> Home+AP` haelt im Stand
+parallel zum Home-WLAN den Setup-Hotspot `M5Dial-123-Setup` mit DHCP auf
+`192.168.4.1` offen. Bei echten `RPM > 650` sind WLAN-Setup-Aenderungen
+gesperrt.
+
 ### Demo-Modus fuer Standtests
 
 Im Menue `SETTINGS` kann `Demo mode` per Long-Press eingeschaltet werden.
@@ -155,7 +162,12 @@ Temperatur und Spannung. Beim Ausschalten kehrt es ebenfalls zu `ADV` zurueck.
 
 ### Web-Steuerung
 
-Die WebGUI enthaelt neben den vier Display-Spiegeln ein `Controls`-Feld.
+Die WebGUI spiegelt jetzt `ADV`, `T/V`, `SETTINGS`, `SYSTEM` und `TUNE`.
+Im `Controls`-Feld kann `Home WiFi + AP` geschaltet werden; der M5Dial
+bleibt dann im Heimnetz erreichbar und stellt zusaetzlich den AP
+`M5Dial-123-Setup` auf `192.168.4.1` bereit.
+
+Die WebGUI enthaelt neben den Display-Spiegeln ein `Controls`-Feld.
 Dort lassen sich Buzzer-/Ton-Schalter, `Touch nav`, `Demo mode`,
 Helligkeit und Rotation direkt am M5Dial aendern und dauerhaft speichern.
 Bei echten `RPM > 650` blockiert die Firmware das Einschalten oder
