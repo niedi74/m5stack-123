@@ -131,7 +131,7 @@ static constexpr int kTuneMaxSteps = 10;       // temporary test correction limi
 static constexpr uint32_t kTuneArmTimeoutMs = 30000;  // ARM expires unless LIVE is confirmed
 static constexpr uint8_t kBuzzerChannel = 6;
 static constexpr uint8_t kSettingCountMain = 7;
-static constexpr uint8_t kSettingCountSystem = 4;
+static constexpr uint8_t kSettingCountSystem = 5;
 static constexpr uint8_t kUiSettingsVersion = 4;  // v4 adds Spartan gateway connection mode.
 static constexpr uint8_t kDisplayBaseRotation = 2;  // Existing upright installation is the 0 deg reference.
 static constexpr uint32_t kScanWindowMs = 10000;
@@ -598,18 +598,13 @@ static void handleTouch() {
         g_touchDown = true;
         return;
     }
-    if (!g_demoMode && !g_touchNavigation) {
-        g_touchDown = false;
-        return;
-    }
     static uint32_t lastPoll = 0;
     if (millis() - lastPoll < 40) return;
     lastPoll = millis();
 
     bool down = readTouchPressed();
     if (down && !g_touchDown) {
-        if (g_demoMode) advancePage();
-        else toggleDrivePageFromTouch();
+        advancePage();
     }
     g_touchDown = down;
 }
@@ -736,6 +731,7 @@ static void handleUiSetting();
 static bool startSetupAp(bool keepSta = false);
 static void stopSetupAp(bool keepStaMode = true);
 static void setWifiHomeApEnabled(bool enabled);
+static bool isSpartanApWifiPreset();
 
 static void handleRoot() {
     String ip = wifiIpLabel();
@@ -792,7 +788,8 @@ static void handleRoot() {
     html += "<div id='sys0' class='item'><span>Bat power</span><span id='bathold' class='" + String(g_batteryHoldEnabled ? "on'>ON" : "off'>OFF") + "</span></div>";
     html += "<div id='sys1' class='item'><span>Home+AP</span><span id='wifiapsta' class='" + String(g_wifiHomeApEnabled ? "on'>ON" : "off'>OFF") + "</span></div>";
     html += "<div id='sys2' class='item'><span>Brightness</span><span id='bright'>" + String(g_brightness) + "</span></div>";
-    html += "<div id='sys3' class='item'><span>Rotation</span><span id='rotation'>" + String(displayRotationDegrees()) + " deg</span></div></div></div>";
+    html += "<div id='sys3' class='item'><span>Rotation</span><span id='rotation'>" + String(displayRotationDegrees()) + " deg</span></div>";
+    html += "<div id='sys4' class='item'><span>WiFi</span><span id='wifipreset'>" + String(isSpartanApWifiPreset() ? "Spartan" : "Home") + "</span></div></div></div>";
     html += "<div class='dial'><div class='top'><span id='ble5' class='ble'>" + liveText + "</span><span id='ign5' class='ign'>" + ignitionText + "</span><span class='mode warn'>TUNE</span></div>";
     html += "<div id='tunetitle' class='screen-title " + String(g_demoMode ? "demo" : "warn") + "'>" + tuneTitle + "</div><div id='tunestate' class='tunestate safe'>" + tuneState + "</div>";
     html += "<div id='tunehelp' class='tunehelp'>Hold on device 2s to ARM</div><div id='tunestep' class='tunestep orange'>+0</div>";
@@ -829,6 +826,7 @@ static void handleRoot() {
     html += "<input name='ssid' placeholder='SSID'><input name='pass' placeholder='Password' type='password'>";
     html += "<button type='submit'>Save WiFi and reboot</button></form>";
     html += "<button onclick=\"fetch('/wifi_spartan',{method:'POST'}).then(r=>r.text()).then(t=>{document.getElementById('wifi_result').textContent=t;setTimeout(()=>location.href='http://192.168.4.2/',2500)})\">Use Spartan AP (192.168.4.2)</button>";
+    html += "<button onclick=\"fetch('/wifi_dhcp',{method:'POST'}).then(r=>r.text()).then(t=>{document.getElementById('wifi_result').textContent=t})\">Restore Home WiFi</button>";
     html += "<p id='wifi_result' class='muted'></p>";
     html += "<a href='/wps'>Start WPS</a>";
     html += "<p class='muted'>WPS: first click Start WPS here, then press Connect/WPS on the FRITZ!Box.</p>";
@@ -845,11 +843,11 @@ static void handleRoot() {
     html += "tunelbl.textContent=d.tune_active?('TUNE '+(d.tune_steps>=0?'+':'')+d.tune_steps):'ADVANCE  deg';tunelbl.className='tunelbl '+c(d.tune_steps);";
     html += "map.textContent=Number(d.map_bar).toFixed(2);lambda.textContent=d.lambda_valid?Number(d.lambda).toFixed(2):'--';rpm.textContent=d.rpm;aux1.textContent=d.temp;aux2.textContent=Number(d.volt).toFixed(1);";
     html += "if(!d.lambda_valid){lambda.style.color='#666'}else if(d.lambda<0.8){lambda.style.color='#ffd54a'}else if(d.lambda<0.9){lambda.style.color='#35d46b'}else if(d.lambda<1.0){lambda.style.color='#f39c12'}else{lambda.style.color='#ff3838'};";
-    html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);yn('demomode',d.demo);if(d.demo)demomode.className='demo';yn('bathold',d.battery_hold);yn('wifiapsta',d.wifi_home_ap);bright.textContent=d.brightness;rotation.textContent=d.rotation_deg+' deg';connmode.textContent=d.connection_label;";
+    html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);yn('demomode',d.demo);if(d.demo)demomode.className='demo';yn('bathold',d.battery_hold);yn('wifiapsta',d.wifi_home_ap);bright.textContent=d.brightness;rotation.textContent=d.rotation_deg+' deg';connmode.textContent=d.connection_label;wifipreset.textContent=d.wifi_spartan_preset?'Spartan':'Home';";
     html += "ctl_buzzer.checked=d.buzzer;ctl_button.checked=d.beep_actions;ctl_ble.checked=d.beep_ble;ctl_error.checked=d.beep_errors;ctl_touch.checked=d.touch_nav;ctl_demo.checked=d.demo;ctl_bathold.checked=d.battery_hold;ctl_wifiapsta.checked=d.wifi_home_ap;ctl_bright.value=d.brightness;ctl_bright_value.textContent=d.brightness;ctl_rotation.value=String(d.rotation_deg);ctl_conn.value=d.connection;";
     html += "ctl_buzzer.disabled=d.settings_locked&&!d.buzzer;ctl_button.disabled=d.settings_locked&&!d.beep_actions;ctl_ble.disabled=d.settings_locked&&!d.beep_ble;ctl_error.disabled=d.settings_locked&&!d.beep_errors;ctl_touch.disabled=d.settings_locked&&!d.touch_nav;ctl_demo.disabled=d.settings_locked&&!d.demo;ctl_bathold.disabled=d.settings_locked;ctl_wifiapsta.disabled=d.settings_locked;ctl_bright.disabled=d.settings_locked;ctl_rotation.disabled=d.settings_locked;ctl_conn.disabled=d.settings_locked;";
     html += "for(let i=0;i<7;i++)document.getElementById('set'+i).className='item '+(d.page=='SET'&&i==d.setting_index?'sel':'');";
-    html += "for(let i=0;i<4;i++)document.getElementById('sys'+i).className='item '+(d.page=='SET2'&&i==d.setting_index?'sel':'');";
+    html += "for(let i=0;i<5;i++)document.getElementById('sys'+i).className='item '+(d.page=='SET2'&&i==d.setting_index?'sel':'');";
     html += "tunetitle.textContent=d.demo?'DEMO TUNE':'LIVE TUNE';tunetitle.className='screen-title '+(d.demo?'demo':'warn');";
     html += "let st=d.tune_active?(d.demo?'SIM LIVE':'LIVE'):(d.tune_armed?(d.demo?'SIM ARMED':'ARMED'):'LOCKED');tunestate.textContent=st;tunestate.className='tunestate '+(d.demo?'demo':(d.tune_active?'warn':(d.tune_armed?'safe':'off')));";
     html += "tunehelp.textContent=d.tune_active?'Rotate on device +/-; hold 2s to EXIT':(d.tune_armed?'Hold on device 2s to START':'Hold on device 2s to ARM');";
@@ -890,6 +888,7 @@ static void handleState() {
     json += "\"battery_hold\":" + String(g_batteryHoldEnabled ? "true" : "false") + ",";
     json += "\"wifi_home_ap\":" + String(g_wifiHomeApEnabled ? "true" : "false") + ",";
     json += "\"wifi_ap\":" + String(g_wifiAp ? "true" : "false") + ",";
+    json += "\"wifi_spartan_preset\":" + String(isSpartanApWifiPreset() ? "true" : "false") + ",";
     json += "\"connection\":\"" + String(g_connectionMode == CONN_SPARTAN_GATEWAY ? "gateway" : "direct") + "\",";
     json += "\"connection_label\":\"" + String(connectionModeLabel()) + "\",";
     json += "\"brightness\":" + String(g_brightness) + ",";
@@ -933,7 +932,26 @@ static void handleWifiSave() {
     ESP.restart();
 }
 
+static bool isSpartanApWifiPreset() {
+    return prefs.getString("ssid", "") == kSpartanApSsid &&
+           prefs.getBool("static", false) &&
+           prefs.getString("ip", "") == kSpartanApM5Ip;
+}
+
+static void backupCurrentWifiPresetIfNeeded() {
+    String ssid = prefs.getString("ssid", "");
+    if (ssid.length() == 0 || ssid == kSpartanApSsid) return;
+    prefs.putString("home_ssid", ssid);
+    prefs.putString("home_pass", prefs.getString("pass", ""));
+    prefs.putBool("home_static", prefs.getBool("static", false));
+    prefs.putString("home_ip", prefs.getString("ip", ""));
+    prefs.putString("home_gw", prefs.getString("gw", ""));
+    prefs.putString("home_mask", prefs.getString("mask", ""));
+    prefs.putString("home_dns", prefs.getString("dns", ""));
+}
+
 static void saveSpartanApWifiPreset() {
+    backupCurrentWifiPresetIfNeeded();
     prefs.putString("ssid", kSpartanApSsid);
     prefs.putString("pass", kSpartanApPassword);
     prefs.putBool("static", true);
@@ -945,6 +963,25 @@ static void saveSpartanApWifiPreset() {
     saveUiSettings();
 }
 
+static bool restoreHomeWifiPreset() {
+    String homeSsid = prefs.getString("home_ssid", "");
+    if (homeSsid.length() == 0) return false;
+
+    prefs.putString("ssid", homeSsid);
+    prefs.putString("pass", prefs.getString("home_pass", ""));
+    const bool homeStatic = prefs.getBool("home_static", false);
+    prefs.putBool("static", homeStatic);
+    if (homeStatic) {
+        prefs.putString("ip", prefs.getString("home_ip", ""));
+        prefs.putString("gw", prefs.getString("home_gw", ""));
+        prefs.putString("mask", prefs.getString("home_mask", "255.255.255.0"));
+        prefs.putString("dns", prefs.getString("home_dns", ""));
+    }
+    g_wifiHomeApEnabled = false;
+    saveUiSettings();
+    return true;
+}
+
 static void handleSpartanWifiPreset() {
     if (wifiSetupBlockedWhileDriving()) {
         web.send(409, "text/plain", "Spartan AP preset blocked while RPM > 650");
@@ -952,6 +989,20 @@ static void handleSpartanWifiPreset() {
     }
     saveSpartanApWifiPreset();
     web.send(200, "text/plain", "Saved Spartan AP preset. Rebooting to 192.168.4.2...");
+    delay(500);
+    ESP.restart();
+}
+
+static void handleWifiDhcpMode() {
+    if (wifiSetupBlockedWhileDriving()) {
+        web.send(409, "text/plain", "WiFi DHCP reset blocked while RPM > 650");
+        return;
+    }
+    if (!restoreHomeWifiPreset()) {
+        web.send(409, "text/plain", "No Home WiFi backup yet. Save Home WiFi SSID/password first.");
+        return;
+    }
+    web.send(200, "text/plain", "Home WiFi restored. Rebooting...");
     delay(500);
     ESP.restart();
 }
@@ -1036,6 +1087,7 @@ static void setupWebGui() {
     web.on("/time_set", HTTP_GET, handleTimeSet);
     web.on("/wifi", HTTP_GET, handleWifiSave);
     web.on("/wifi_spartan", HTTP_POST, handleSpartanWifiPreset);
+    web.on("/wifi_dhcp", HTTP_POST, handleWifiDhcpMode);
     web.on("/wps", HTTP_GET, handleWpsStart);
     web.on("/clear", HTTP_GET, handleClearLog);
     web.on("/download", HTTP_GET, []() { sendLogFile(LOG_FILE, "m5dial_123tune_drive.csv"); });
@@ -2313,13 +2365,13 @@ static void drawLambdaPage() {
 
     display.setFont(&fonts::FreeSans12pt7b);
     display.setTextColor(TFT_DARKGREY);
-    display.drawString("LAMBDA", 120, 42);
+    display.drawString("LAMBDA", 120, 34);
 
     display.setTextColor(lambdaColor());
     display.setFont(&fonts::FreeSans24pt7b);
     if (g_lambdaValid) snprintf(buf, sizeof(buf), "%.2f", (float)g_lambda);
     else snprintf(buf, sizeof(buf), "--");
-    display.drawString(buf, 120, 100);
+    display.drawString(buf, 120, 88);
 
     const char* rangeText = "kein Signal";
     if (g_lambdaValid) {
@@ -2330,23 +2382,23 @@ static void drawLambdaPage() {
     }
     display.setFont(&fonts::FreeSans9pt7b);
     display.setTextColor(lambdaColor());
-    display.drawString(rangeText, 120, 142);
+    display.drawString(rangeText, 120, 130);
 
     display.setTextColor(TFT_DARKGREY);
-    display.drawString(connectionModeLabel(), 120, 166);
+    display.drawString(connectionModeLabel(), 120, 154);
 
     display.setFont(&fonts::Font2);
     display.setTextColor(TFT_SKYBLUE);
     snprintf(buf, sizeof(buf), "MAP %.2f", mapBar());
-    display.drawString(buf, 65, 204);
+    display.drawString(buf, 65, 194);
     display.setTextColor(TFT_ORANGE);
     snprintf(buf, sizeof(buf), "ADV %.1f", (float)g_adv);
-    display.drawString(buf, 175, 204);
+    display.drawString(buf, 175, 194);
 
     display.setFont(&fonts::FreeSans9pt7b);
     display.setTextColor(TFT_WHITE);
     snprintf(buf, sizeof(buf), "RPM %d", (int)g_rpm);
-    display.drawString(buf, 120, 224);
+    display.drawString(buf, 120, 216);
 }
 
 static void drawAux() {
@@ -2361,7 +2413,7 @@ static void drawSettings() {
     const bool systemPage = g_page == PAGE_SETTINGS2;
     const char* labelsMain[] = { "Buzzer", "Button tone", "BLE tone", "Error tone", "Touch nav", "Demo mode", "Conn" };
     bool valuesMain[] = { g_buzzerEnabled, g_beepActions, g_beepBle, g_beepErrors, g_touchNavigation, g_demoMode };
-    const char* labelsSystem[] = { "Bat power", "Home+AP", "Brightness", "Rotation" };
+    const char* labelsSystem[] = { "Bat power", "Home+AP", "Brightness", "Rotation", "WiFi" };
     bool valuesSystem[] = { g_batteryHoldEnabled, g_wifiHomeApEnabled };
     uint8_t count = settingCountForPage();
     display.fillRect(0, 44, 240, 196, TFT_BLACK);
@@ -2395,6 +2447,9 @@ static void drawSettings() {
         } else if (i == 3) {
             snprintf(value, sizeof(value), "%u deg", displayRotationDegrees());
             display.setTextColor(TFT_SKYBLUE);
+        } else if (i == 4) {
+            snprintf(value, sizeof(value), "%s", isSpartanApWifiPreset() ? "Spartan" : "Home");
+            display.setTextColor(isSpartanApWifiPreset() ? (uint32_t)TFT_CYAN : (uint32_t)TFT_GREEN);
         }
         display.drawString(value, 208, y);
     }
@@ -2470,6 +2525,24 @@ static void activateSetting() {
                 g_rotationQuarterTurns = (g_rotationQuarterTurns + 1) % 4;
                 applyDisplayRotation();
                 pushLog("Rotation %u deg", displayRotationDegrees());
+                break;
+            case 4:
+                if (wifiSetupBlockedWhileDriving()) {
+                    pushLog("WiFi lock Fahrt");
+                    break;
+                }
+                if (isSpartanApWifiPreset()) {
+                    if (!restoreHomeWifiPreset()) {
+                        pushLog("Kein Home Backup");
+                        break;
+                    }
+                    pushLog("WiFi Home");
+                } else {
+                    saveSpartanApWifiPreset();
+                    pushLog("WiFi Spartan AP");
+                }
+                delay(300);
+                ESP.restart();
                 break;
         }
         saveUiSettings();
