@@ -1955,6 +1955,21 @@ static bool jsonNumber(const String& json, const char* key, float& out) {
 }
 
 static bool decodeGatewayCompact(const String& payload) {
+    if (payload.startsWith("L") && payload.indexOf('R') > 1) {
+        int posR = payload.indexOf('R');
+        int posA = payload.indexOf('A', posR + 1);
+        int posM = payload.indexOf('M', posA + 1);
+        if (posR > 1 && posA > posR && posM > posA) {
+            g_lambda = payload.substring(1, posR).toFloat();
+            g_lambdaValid = true;
+            g_rpm = payload.substring(posR + 1, posA).toFloat();
+            g_adv = payload.substring(posA + 1, posM).toFloat();
+            g_map = payload.substring(posM + 1).toFloat();
+            g_rxCnt++;
+            return true;
+        }
+    }
+
     if (!payload.startsWith("L")) return false;
     int commaT = payload.indexOf(",T");
     if (commaT < 0) return false;
