@@ -46,6 +46,10 @@ static const char* NUS_SVC = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 static const char* NUS_RX  = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 static const char* NUS_TX  = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 static const char* TARGET  = "ef:a8:b2:de:e0:9e";
+static const char* SPARTAN_NAME = "Spartan3-Hub";
+static const char* SPARTAN_SVC = "7f510001-5a6b-4d2a-9f20-14a7f3e20000";
+static const char* SPARTAN_STATUS = "7f510002-5a6b-4d2a-9f20-14a7f3e20000";
+static const char* SPARTAN_CMD = "7f510003-5a6b-4d2a-9f20-14a7f3e20000";
 
 // --- Hardware ---
 #define BTN_PIN       42
@@ -79,12 +83,16 @@ static volatile float    g_tmp   = 0;
 static volatile float    g_vlt   = 0;
 static volatile float    g_map   = 0;
 static volatile float    g_cur   = 0;
+static volatile float    g_lambda = 0;
 static volatile bool     g_conn  = false;
+static volatile bool     g_lambdaValid = false;
 static volatile uint32_t g_rxCnt = 0;
 enum UiPage : uint8_t { PAGE_MAIN, PAGE_AUX, PAGE_SETTINGS, PAGE_SETTINGS2, PAGE_TUNE, PAGE_COUNT };
 enum BeepKind : uint8_t { BEEP_ACTION, BEEP_BLE, BEEP_ERROR };
+enum ConnectionMode : uint8_t { CONN_DIRECT_123 = 0, CONN_SPARTAN_GATEWAY = 1 };
 
 static UiPage            g_page = PAGE_MAIN;
+static ConnectionMode    g_connectionMode = CONN_DIRECT_123;
 static bool              g_rawlog = false;
 static bool              g_readRequested = false;
 static bool              g_readBusy = false;
@@ -112,8 +120,10 @@ static uint32_t          g_lastDemoUpdate = 0;
 
 static NimBLEClient* pClient   = nullptr;
 static NimBLERemoteCharacteristic* pNusRx = nullptr;
+static NimBLERemoteCharacteristic* pGatewayCmd = nullptr;
 static NimBLEAddress targetAddr;
 static volatile bool  doConnect = false;
+static String          g_gatewayJsonBuffer;
 
 static constexpr bool kReadOnConnect = false;  // live mode stays quiet; long press starts read-only dump
 static constexpr float kLogMinRpm = 650.0f;    // suppress ignition/start-only noise in drive logs
@@ -121,8 +131,8 @@ static constexpr int kTuneMaxSteps = 10;       // temporary test correction limi
 static constexpr uint32_t kTuneArmTimeoutMs = 30000;  // ARM expires unless LIVE is confirmed
 static constexpr uint8_t kBuzzerChannel = 6;
 static constexpr uint8_t kSettingCountMain = 6;
-static constexpr uint8_t kSettingCountSystem = 4;
-static constexpr uint8_t kUiSettingsVersion = 3;  // v3 adds WiFi Home+AP mode; sounds stay off by default.
+static constexpr uint8_t kSettingCountSystem = 5;
+static constexpr uint8_t kUiSettingsVersion = 4;  // v4 adds Spartan gateway connection mode.
 static constexpr uint8_t kDisplayBaseRotation = 2;  // Existing upright installation is the 0 deg reference.
 static constexpr uint32_t kScanWindowMs = 10000;
 static constexpr uint32_t kScanPauseMs[] = { 5000, 10000, 20000, 30000 };
@@ -427,6 +437,10 @@ static float mapBar() {
     return (float)g_map / 100.0f;
 }
 
+static const char* connectionModeLabel() {
+    return g_connectionMode == CONN_SPARTAN_GATEWAY ? "Gateway" : "123 dir";
+}
+
 static const char* pageName() {
     switch (g_page) {
         case PAGE_AUX: return "T/V";
@@ -490,6 +504,7 @@ static void saveUiSettings() {
     prefs.putBool("touch_nav", g_touchNavigation);
     prefs.putBool("bat_hold", g_batteryHoldEnabled);
     prefs.putBool("wifi_apsta", g_wifiHomeApEnabled);
+    prefs.putUChar("conn_mode", static_cast<uint8_t>(g_connectionMode));
     prefs.putUChar("bright", g_brightness);
     prefs.putUChar("rot_q", g_rotationQuarterTurns);
 }
@@ -505,6 +520,7 @@ static void loadUiSettings() {
         g_touchNavigation = false;
         g_batteryHoldEnabled = true;
         g_wifiHomeApEnabled = false;
+        g_connectionMode = CONN_DIRECT_123;
         saveUiSettings();
     } else {
         g_buzzerEnabled = prefs.getBool("buzzer", false);
@@ -514,6 +530,8 @@ static void loadUiSettings() {
         g_touchNavigation = prefs.getBool("touch_nav", false);
         g_batteryHoldEnabled = prefs.getBool("bat_hold", true);
         g_wifiHomeApEnabled = prefs.getBool("wifi_apsta", false);
+        g_connectionMode = prefs.getUChar("conn_mode", CONN_DIRECT_123) == CONN_SPARTAN_GATEWAY ?
+                           CONN_SPARTAN_GATEWAY : CONN_DIRECT_123;
     }
     if (g_brightness < 40) g_brightness = 40;
     applyPowerHold();
@@ -724,7 +742,7 @@ static void handleRoot() {
     html += ".dial{width:min(82vw,320px);aspect-ratio:1;border-radius:50%;background:#050505;margin:4px 0 18px;position:relative;border:10px solid #242424;box-shadow:inset 0 0 38px #1d2830,0 0 16px #000;color:#ddd;overflow:hidden}";
     html += ".top{position:absolute;top:28px;left:0;right:0;font-size:14px;font-weight:700}.ble{position:absolute;left:72px;color:#2577ff}.ign{position:absolute;left:72px;top:16px;color:#e93b2f}.mode{position:absolute;right:72px;color:#3e75ff}";
     html += ".adv{position:absolute;top:76px;left:0;right:0;text-align:center;font-size:58px;line-height:1;font-weight:800;color:#f39c12}.lbl{font-size:14px;color:#ccc;font-weight:700;letter-spacing:0}.tunelbl{position:absolute;top:135px;left:0;right:0;text-align:center;font-size:16px;font-weight:800;color:#f39c12}";
-    html += ".map{position:absolute;top:162px;left:0;right:0;text-align:center;font-size:28px;font-weight:800;color:#46b9ff}.maplbl{position:absolute;top:193px;left:0;right:0;text-align:center;color:#888;font-size:14px;font-weight:700}";
+    html += ".map{position:absolute;top:162px;left:42px;width:76px;text-align:center;font-size:28px;font-weight:800;color:#46b9ff}.maplbl{position:absolute;top:193px;left:42px;width:76px;text-align:center;color:#888;font-size:14px;font-weight:700}.lambda{position:absolute;top:162px;left:128px;width:86px;text-align:center;font-size:28px;font-weight:800;color:#35d46b}.lambdalbl{position:absolute;top:193px;left:128px;width:86px;text-align:center;color:#888;font-size:14px;font-weight:700}";
     html += ".rpm{position:absolute;bottom:30px;left:0;right:0;text-align:center;font-size:44px;font-weight:800;color:#fff}.rpmlbl{position:absolute;bottom:14px;left:0;right:0;text-align:center;color:#888;font-size:14px;font-weight:700}";
     html += ".big1{position:absolute;top:82px;left:0;right:0;text-align:center;font-size:58px;line-height:1;font-weight:800}.lbl1{position:absolute;top:138px;left:0;right:0;text-align:center;color:#ddd;font-size:16px;font-weight:800}.big2{position:absolute;top:174px;left:0;right:0;text-align:center;font-size:58px;line-height:1;font-weight:800}.lbl2{position:absolute;top:230px;left:0;right:0;text-align:center;color:#ddd;font-size:16px;font-weight:800}";
     html += ".screen-title{position:absolute;top:54px;left:0;right:0;text-align:center;font-size:22px;font-weight:800;color:#efefef}.items{position:absolute;top:78px;left:45px;right:42px;font-size:13px;font-weight:700;line-height:1.35}.item{display:flex;justify-content:space-between;color:#888}.item.sel{color:#f39c12}.on{color:#35d46b}.off{color:#777}.demo{color:#00d7db}.warn{color:#ff453a}.safe{color:#ffab19}.tunestate{position:absolute;top:92px;left:0;right:0;text-align:center;font-size:27px;font-weight:800}.tunehelp{position:absolute;top:128px;left:30px;right:30px;text-align:center;color:#aaa;font-size:13px;font-weight:700}.tunestep{position:absolute;top:164px;left:0;right:0;text-align:center;font-size:56px;font-weight:800}.tunemetric{position:absolute;bottom:28px;left:0;right:0;text-align:center;color:#aaa;font-size:14px;font-weight:700}";
@@ -735,7 +753,7 @@ static void handleRoot() {
     html += "<div class='top'><span id='ble' class='ble'>" + liveText + "</span><span id='ign' class='ign'>" + ignitionText + "</span><span id='mode' class='mode'>ADV</span></div>";
     html += "<div id='adv' class='adv orange'>0.0</div>";
     html += "<div id='tunelbl' class='tunelbl orange'>ADVANCE&nbsp; deg</div>";
-    html += "<div id='map' class='map'>0.00</div><div class='maplbl'>MAP&nbsp; bar</div>";
+    html += "<div id='map' class='map'>0.00</div><div class='maplbl'>MAP&nbsp;bar</div><div id='lambda' class='lambda'>--</div><div class='lambdalbl'>LAMBDA</div>";
     html += "<div id='rpm' class='rpm'>0</div><div class='rpmlbl'>RPM</div>";
     html += "</div>";
     html += "<div class='dial'>";
@@ -756,7 +774,8 @@ static void handleRoot() {
     html += "<div id='sys0' class='item'><span>Bat power</span><span id='bathold' class='" + String(g_batteryHoldEnabled ? "on'>ON" : "off'>OFF") + "</span></div>";
     html += "<div id='sys1' class='item'><span>Home+AP</span><span id='wifiapsta' class='" + String(g_wifiHomeApEnabled ? "on'>ON" : "off'>OFF") + "</span></div>";
     html += "<div id='sys2' class='item'><span>Brightness</span><span id='bright'>" + String(g_brightness) + "</span></div>";
-    html += "<div id='sys3' class='item'><span>Rotation</span><span id='rotation'>" + String(displayRotationDegrees()) + " deg</span></div></div></div>";
+    html += "<div id='sys3' class='item'><span>Rotation</span><span id='rotation'>" + String(displayRotationDegrees()) + " deg</span></div>";
+    html += "<div id='sys4' class='item'><span>Conn</span><span id='connmode'>" + String(connectionModeLabel()) + "</span></div></div></div>";
     html += "<div class='dial'><div class='top'><span id='ble5' class='ble'>" + liveText + "</span><span id='ign5' class='ign'>" + ignitionText + "</span><span class='mode warn'>TUNE</span></div>";
     html += "<div id='tunetitle' class='screen-title " + String(g_demoMode ? "demo" : "warn") + "'>" + tuneTitle + "</div><div id='tunestate' class='tunestate safe'>" + tuneState + "</div>";
     html += "<div id='tunehelp' class='tunehelp'>Hold on device 2s to ARM</div><div id='tunestep' class='tunestep orange'>+0</div>";
@@ -767,7 +786,7 @@ static void handleRoot() {
     html += "<div>GW: " + WiFi.gatewayIP().toString() + " / DNS: " + WiFi.dnsIP().toString() + "</div>";
     html += "<div>AP: " + String(g_wifiAp ? "ON 192.168.4.1" : "OFF") + " / Mode: " + String(g_wifiHomeApEnabled ? "Home+AP" : "Fallback") + "</div>";
     html += "<div>RTC: " + String(g_rtcOk ? (g_rtcValid ? "valid" : "seen") : "missing") + " / NTP polls: " + String(g_ntpPolls) + "</div>";
-    html += "<div>BLE: " + String(g_demoMode ? "DEMO - no device TX" : (g_conn ? "connected" : "searching")) + "</div>";
+    html += "<div>BLE: " + String(g_demoMode ? "DEMO - no device TX" : (g_conn ? "connected" : "searching")) + " / Conn: " + String(connectionModeLabel()) + "</div>";
     html += "<div>RPM: " + String((int)g_rpm) + " / ADV: " + String((float)g_adv, 1) + " / MAP: " + String(mapBar(), 2) + " bar</div></div>";
     html += "<div class='box'><h3>Controls</h3><div class='controls'>";
     html += "<label class='toggle-row'><span>Buzzer</span><input id='ctl_buzzer' type='checkbox' onchange=\"setFlag('buzzer',this.checked)\"></label>";
@@ -780,6 +799,7 @@ static void handleRoot() {
     html += "<label class='toggle-row'><span>Home WiFi + AP</span><input id='ctl_wifiapsta' type='checkbox' onchange=\"setFlag('wifi_home_ap',this.checked)\"></label>";
     html += "<label class='slider-row'><span>Brightness <output id='ctl_bright_value'>" + String(g_brightness) + "</output></span><input id='ctl_bright' type='range' min='40' max='255' step='5' value='" + String(g_brightness) + "' onchange=\"setUi('brightness',this.value)\"></label>";
     html += "<label class='select-row'><span>Rotation</span><select id='ctl_rotation' onchange=\"setUi('rotation',this.value)\"><option value='0'>0 deg</option><option value='90'>90 deg</option><option value='180'>180 deg</option><option value='270'>270 deg</option></select></label>";
+    html += "<label class='select-row'><span>Connection</span><select id='ctl_conn' onchange=\"setUi('connection',this.value)\"><option value='direct'>123 direkt</option><option value='gateway'>Spartan Gateway</option></select></label>";
     html += "<p id='ui_result' class='ui-result'></p></div></div>";
     html += "<div class='box'><h3>Time</h3>";
     html += "<button onclick=\"fetch('/time_set?epoch='+Math.floor(Date.now()/1000)).then(()=>location.reload())\">Sync from browser</button>";
@@ -803,12 +823,12 @@ static void handleRoot() {
     html += "mode.textContent=d.tune_active?('T'+(d.tune_steps>=0?'+':'')+d.tune_steps):'ADV';";
     html += "adv.textContent=Number(d.adv).toFixed(1);adv.className='adv '+c(d.tune_steps);";
     html += "tunelbl.textContent=d.tune_active?('TUNE '+(d.tune_steps>=0?'+':'')+d.tune_steps):'ADVANCE  deg';tunelbl.className='tunelbl '+c(d.tune_steps);";
-    html += "map.textContent=Number(d.map_bar).toFixed(2);rpm.textContent=d.rpm;aux1.textContent=d.temp;aux2.textContent=Number(d.volt).toFixed(1);";
-    html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);yn('demomode',d.demo);if(d.demo)demomode.className='demo';yn('bathold',d.battery_hold);yn('wifiapsta',d.wifi_home_ap);bright.textContent=d.brightness;rotation.textContent=d.rotation_deg+' deg';";
-    html += "ctl_buzzer.checked=d.buzzer;ctl_button.checked=d.beep_actions;ctl_ble.checked=d.beep_ble;ctl_error.checked=d.beep_errors;ctl_touch.checked=d.touch_nav;ctl_demo.checked=d.demo;ctl_bathold.checked=d.battery_hold;ctl_wifiapsta.checked=d.wifi_home_ap;ctl_bright.value=d.brightness;ctl_bright_value.textContent=d.brightness;ctl_rotation.value=String(d.rotation_deg);";
-    html += "ctl_buzzer.disabled=d.settings_locked&&!d.buzzer;ctl_button.disabled=d.settings_locked&&!d.beep_actions;ctl_ble.disabled=d.settings_locked&&!d.beep_ble;ctl_error.disabled=d.settings_locked&&!d.beep_errors;ctl_touch.disabled=d.settings_locked&&!d.touch_nav;ctl_demo.disabled=d.settings_locked&&!d.demo;ctl_bathold.disabled=d.settings_locked;ctl_wifiapsta.disabled=d.settings_locked;ctl_bright.disabled=d.settings_locked;ctl_rotation.disabled=d.settings_locked;";
+    html += "map.textContent=Number(d.map_bar).toFixed(2);lambda.textContent=d.lambda_valid?Number(d.lambda).toFixed(2):'--';rpm.textContent=d.rpm;aux1.textContent=d.temp;aux2.textContent=Number(d.volt).toFixed(1);";
+    html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);yn('demomode',d.demo);if(d.demo)demomode.className='demo';yn('bathold',d.battery_hold);yn('wifiapsta',d.wifi_home_ap);bright.textContent=d.brightness;rotation.textContent=d.rotation_deg+' deg';connmode.textContent=d.connection_label;";
+    html += "ctl_buzzer.checked=d.buzzer;ctl_button.checked=d.beep_actions;ctl_ble.checked=d.beep_ble;ctl_error.checked=d.beep_errors;ctl_touch.checked=d.touch_nav;ctl_demo.checked=d.demo;ctl_bathold.checked=d.battery_hold;ctl_wifiapsta.checked=d.wifi_home_ap;ctl_bright.value=d.brightness;ctl_bright_value.textContent=d.brightness;ctl_rotation.value=String(d.rotation_deg);ctl_conn.value=d.connection;";
+    html += "ctl_buzzer.disabled=d.settings_locked&&!d.buzzer;ctl_button.disabled=d.settings_locked&&!d.beep_actions;ctl_ble.disabled=d.settings_locked&&!d.beep_ble;ctl_error.disabled=d.settings_locked&&!d.beep_errors;ctl_touch.disabled=d.settings_locked&&!d.touch_nav;ctl_demo.disabled=d.settings_locked&&!d.demo;ctl_bathold.disabled=d.settings_locked;ctl_wifiapsta.disabled=d.settings_locked;ctl_bright.disabled=d.settings_locked;ctl_rotation.disabled=d.settings_locked;ctl_conn.disabled=d.settings_locked;";
     html += "for(let i=0;i<6;i++)document.getElementById('set'+i).className='item '+(d.page=='SET'&&i==d.setting_index?'sel':'');";
-    html += "for(let i=0;i<4;i++)document.getElementById('sys'+i).className='item '+(d.page=='SET2'&&i==d.setting_index?'sel':'');";
+    html += "for(let i=0;i<5;i++)document.getElementById('sys'+i).className='item '+(d.page=='SET2'&&i==d.setting_index?'sel':'');";
     html += "tunetitle.textContent=d.demo?'DEMO TUNE':'LIVE TUNE';tunetitle.className='screen-title '+(d.demo?'demo':'warn');";
     html += "let st=d.tune_active?(d.demo?'SIM LIVE':'LIVE'):(d.tune_armed?(d.demo?'SIM ARMED':'ARMED'):'LOCKED');tunestate.textContent=st;tunestate.className='tunestate '+(d.demo?'demo':(d.tune_active?'warn':(d.tune_armed?'safe':'off')));";
     html += "tunehelp.textContent=d.tune_active?'Rotate on device +/-; hold 2s to EXIT':(d.tune_armed?'Hold on device 2s to START':'Hold on device 2s to ARM');";
@@ -834,6 +854,8 @@ static void handleState() {
     json += "\"adv\":" + String((float)g_adv, 1) + ",";
     json += "\"map\":" + String((int)g_map) + ",";
     json += "\"map_bar\":" + String(mapBar(), 2) + ",";
+    json += "\"lambda\":" + String((float)g_lambda, 3) + ",";
+    json += "\"lambda_valid\":" + String(g_lambdaValid ? "true" : "false") + ",";
     json += "\"temp\":" + String((int)g_tmp) + ",";
     json += "\"volt\":" + String((float)g_vlt, 1) + ",";
     json += "\"tune_armed\":" + String(g_tuneArmed ? "true" : "false") + ",";
@@ -847,6 +869,8 @@ static void handleState() {
     json += "\"battery_hold\":" + String(g_batteryHoldEnabled ? "true" : "false") + ",";
     json += "\"wifi_home_ap\":" + String(g_wifiHomeApEnabled ? "true" : "false") + ",";
     json += "\"wifi_ap\":" + String(g_wifiAp ? "true" : "false") + ",";
+    json += "\"connection\":\"" + String(g_connectionMode == CONN_SPARTAN_GATEWAY ? "gateway" : "direct") + "\",";
+    json += "\"connection_label\":\"" + String(connectionModeLabel()) + "\",";
     json += "\"brightness\":" + String(g_brightness) + ",";
     json += "\"rotation_deg\":" + String(displayRotationDegrees());
     json += ",\"settings_locked\":" + String(wifiSetupBlockedWhileDriving() ? "true" : "false");
@@ -1169,6 +1193,7 @@ static bool tuneSendToggle();
 static bool tuneStep(int dir);
 static void tuneZero();
 static void startScan();
+static void disconnectBleForModeChange();
 
 static void stopDemoMode(const char* reason, bool resumeBle) {
     if (!g_demoMode) return;
@@ -1198,7 +1223,7 @@ static void stopDemoMode(const char* reason, bool resumeBle) {
 
 static bool startDemoMode() {
     if (g_demoMode) return true;
-    if (g_conn || g_tuneActive) {
+    if (g_tuneActive || (g_conn && g_connectionMode == CONN_DIRECT_123)) {
         pushLog("DEMO blockiert");
         return false;
     }
@@ -1213,7 +1238,7 @@ static bool startDemoMode() {
     g_page = PAGE_MAIN;
     doConnect = false;
     g_nextScanAt = 0;
-    NimBLEDevice::getScan()->stop();
+    if (!g_conn) NimBLEDevice::getScan()->stop();
     pushLog("DEMO EIN - kein TX");
     return true;
 }
@@ -1232,6 +1257,10 @@ static void serviceDemoMode() {
     g_tmp = 82 + (index / 3);
     g_vlt = 13.7f + ((index & 1) ? 0.1f : 0.0f);
     g_cur = 2.4f;
+    if (!(g_connectionMode == CONN_SPARTAN_GATEWAY && g_conn && g_lambdaValid)) {
+        g_lambda = 1.0f + ((int)index - 3) * 0.012f;
+        g_lambdaValid = true;
+    }
 }
 
 static bool parseUiBool(const String& value, bool& parsed) {
@@ -1249,6 +1278,8 @@ static bool parseUiBool(const String& value, bool& parsed) {
 static void handleUiSetting() {
     String setting = web.arg("setting");
     String value = web.arg("value");
+    setting.trim();
+    value.trim();
     bool enabled = false;
     bool isFlag = setting == "buzzer" || setting == "beep_actions" ||
                   setting == "beep_ble" || setting == "beep_errors" ||
@@ -1269,6 +1300,10 @@ static void handleUiSetting() {
     }
     if (wifiSetupBlockedWhileDriving() && setting == "wifi_home_ap") {
         web.send(409, "text/plain", "WiFi AP mode locked while RPM > 650");
+        return;
+    }
+    if (wifiSetupBlockedWhileDriving() && setting == "connection") {
+        web.send(409, "text/plain", "Connection mode locked while RPM > 650");
         return;
     }
     if (wifiSetupBlockedWhileDriving() && (!isFlag || enabled)) {
@@ -1315,6 +1350,15 @@ static void handleUiSetting() {
         }
         g_rotationQuarterTurns = static_cast<uint8_t>(rotation / 90);
         applyDisplayRotation();
+    } else if (setting == "connection") {
+        ConnectionMode nextMode = value.equalsIgnoreCase("gateway") || value == "1" ?
+                                  CONN_SPARTAN_GATEWAY : CONN_DIRECT_123;
+        if (nextMode != g_connectionMode) {
+            g_connectionMode = nextMode;
+            disconnectBleForModeChange();
+            pushLog("Conn %s", connectionModeLabel());
+            startScan();
+        }
     } else {
         web.send(404, "text/plain", "Unknown setting");
         return;
@@ -1357,6 +1401,19 @@ static void handleSerialCommand(String line) {
                       (int)g_map,
                       g_tuneActive ? 1 : 0,
                       g_tuneSteps);
+        return;
+    }
+
+    if (line.equalsIgnoreCase("conn_gateway") || line.equalsIgnoreCase("conn_direct")) {
+        ConnectionMode nextMode = line.equalsIgnoreCase("conn_gateway") ?
+                                  CONN_SPARTAN_GATEWAY : CONN_DIRECT_123;
+        if (nextMode != g_connectionMode) {
+            g_connectionMode = nextMode;
+            disconnectBleForModeChange();
+            saveUiSettings();
+        }
+        Serial.printf("[BLE] connection mode %s\n", connectionModeLabel());
+        startScan();
         return;
     }
 
@@ -1650,6 +1707,33 @@ static void resetScanBackoff() {
     g_nextScanAt = 0;
 }
 
+static void clearLiveValues() {
+    g_rpm = 0;
+    g_adv = 0;
+    g_tmp = 0;
+    g_vlt = 0;
+    g_map = 0;
+    g_cur = 0;
+    g_lambda = 0;
+    g_lambdaValid = false;
+    g_rxCnt = 0;
+}
+
+static void disconnectBleForModeChange() {
+    doConnect = false;
+    g_conn = false;
+    pNusRx = nullptr;
+    pGatewayCmd = nullptr;
+    clearLiveValues();
+    g_tuneArmed = false;
+    g_tuneActive = false;
+    g_tuneSteps = 0;
+    NimBLEDevice::getScan()->stop();
+    if (pClient && pClient->isConnected()) {
+        pClient->disconnect();
+    }
+}
+
 static void scheduleScanRetry() {
     uint8_t idx = min(g_scanPauseIndex,
                       static_cast<uint8_t>((sizeof(kScanPauseMs) / sizeof(kScanPauseMs[0])) - 1));
@@ -1663,7 +1747,7 @@ static void scheduleScanRetry() {
 
 class ClientCB : public NimBLEClientCallbacks {
     void onConnect(NimBLEClient*) override {
-        if (g_demoMode) stopDemoMode("DEMO AUS: BLE", false);
+        if (g_demoMode && g_connectionMode == CONN_DIRECT_123) stopDemoMode("DEMO AUS: BLE", false);
         g_conn = true;
         resetScanBackoff();
         pushLog("Verbunden!");
@@ -1674,6 +1758,7 @@ class ClientCB : public NimBLEClientCallbacks {
         g_conn  = false;
         g_rxCnt = 0;
         pNusRx  = nullptr;
+        pGatewayCmd = nullptr;
         pushLog("Disc reason=%d", reason);
         beep(BEEP_ERROR);
         if (!g_demoMode) startScan();
@@ -1690,19 +1775,26 @@ class ClientCB : public NimBLEClientCallbacks {
 
 class ScanCB : public NimBLEScanCallbacks {
     void onResult(const NimBLEAdvertisedDevice* dev) override {
-        if (g_demoMode) return;
+        if (g_demoMode && g_connectionMode == CONN_DIRECT_123) return;
         String addr = dev->getAddress().toString().c_str();
         addr.toLowerCase();
-        if (addr == TARGET) {
+        bool matched = false;
+        if (g_connectionMode == CONN_SPARTAN_GATEWAY) {
+            String name = dev->getName().c_str();
+            matched = name == SPARTAN_NAME || dev->isAdvertisingService(NimBLEUUID(SPARTAN_SVC));
+        } else {
+            matched = addr == TARGET;
+        }
+        if (matched) {
             targetAddr = dev->getAddress();
             doConnect  = true;
             resetScanBackoff();
             NimBLEDevice::getScan()->stop();
-            pushLog("Gefunden!");
+            pushLog(g_connectionMode == CONN_SPARTAN_GATEWAY ? "Gateway gefunden" : "123 gefunden");
         }
     }
     void onScanEnd(const NimBLEScanResults&, int reason) override {
-        if (g_demoMode || g_conn || doConnect) return;
+        if ((g_demoMode && g_connectionMode == CONN_DIRECT_123) || g_conn || doConnect) return;
         pushLog("Scan Ende r=%d", reason);
         scheduleScanRetry();
     }
@@ -1712,7 +1804,7 @@ static ClientCB clientCB;
 static ScanCB   scanCB;
 
 static void startScan() {
-    if (g_demoMode || g_conn || doConnect) return;
+    if ((g_demoMode && g_connectionMode == CONN_DIRECT_123) || g_conn || doConnect) return;
     g_nextScanAt = 0;
     pushLog("Scan 10s...");
     auto* s = NimBLEDevice::getScan();
@@ -1727,10 +1819,83 @@ static void startScan() {
 }
 
 static void serviceScanRetry() {
-    if (g_demoMode || g_conn || doConnect || g_nextScanAt == 0) return;
+    if ((g_demoMode && g_connectionMode == CONN_DIRECT_123) || g_conn || doConnect || g_nextScanAt == 0) return;
     if (static_cast<int32_t>(millis() - g_nextScanAt) >= 0) {
         startScan();
     }
+}
+
+static bool jsonNumber(const String& json, const char* key, float& out) {
+    String needle = String("\"") + key + "\":";
+    int pos = json.indexOf(needle);
+    if (pos < 0) return false;
+    pos += needle.length();
+    int end = pos;
+    while (end < json.length()) {
+        char c = json[end];
+        if (!(isDigit(c) || c == '-' || c == '+' || c == '.')) break;
+        end++;
+    }
+    if (end == pos) return false;
+    out = json.substring(pos, end).toFloat();
+    return true;
+}
+
+static bool decodeGatewayCompact(const String& payload) {
+    if (!payload.startsWith("L")) return false;
+    int commaT = payload.indexOf(",T");
+    if (commaT < 0) return false;
+
+    g_lambda = payload.substring(1, commaT).toFloat();
+    g_lambdaValid = true;
+
+    int commaS = payload.indexOf(",S", commaT + 2);
+    String tempText = commaS >= 0 ? payload.substring(commaT + 2, commaS) :
+                                    payload.substring(commaT + 2);
+    g_tmp = tempText.toFloat();
+    g_rxCnt++;
+    return true;
+}
+
+static void decodeGatewayPayload(uint8_t* data, size_t len) {
+    String payload;
+    payload.reserve(len + 1);
+    for (size_t i = 0; i < len; i++) {
+        if (data[i] >= 32 && data[i] <= 126) payload += static_cast<char>(data[i]);
+    }
+
+    if (decodeGatewayCompact(payload)) {
+        return;
+    }
+
+    g_gatewayJsonBuffer += payload;
+    if (g_gatewayJsonBuffer.indexOf('{') < 0 && g_gatewayJsonBuffer.length() > 64) {
+        g_gatewayJsonBuffer = "";
+    }
+    if (g_gatewayJsonBuffer.length() > 768) {
+        int start = g_gatewayJsonBuffer.lastIndexOf('{');
+        g_gatewayJsonBuffer = start >= 0 ? g_gatewayJsonBuffer.substring(start) : "";
+    }
+
+    int start = g_gatewayJsonBuffer.indexOf('{');
+    int end = g_gatewayJsonBuffer.indexOf('}', start + 1);
+    if (start < 0 || end < 0) {
+        g_rxCnt++;
+        return;
+    }
+
+    String json = g_gatewayJsonBuffer.substring(start, end + 1);
+    g_gatewayJsonBuffer = g_gatewayJsonBuffer.substring(end + 1);
+
+    float value = 0;
+    if (jsonNumber(json, "lambda", value)) {
+        g_lambda = value;
+        g_lambdaValid = true;
+    }
+    if (jsonNumber(json, "temperature", value)) {
+        g_tmp = value;
+    }
+    g_rxCnt++;
 }
 
 // Notify handler: receives every notification regardless of characteristic
@@ -1742,11 +1907,15 @@ static void onAnyNotify(NimBLERemoteCharacteristic* chr,
         for (size_t i = 0; i < len && i < 20; i++) Serial.printf(" %02X", data[i]);
         Serial.println();
     }
-    decodeFrame(data, len);
+    if (g_connectionMode == CONN_SPARTAN_GATEWAY) {
+        decodeGatewayPayload(data, len);
+    } else {
+        decodeFrame(data, len);
+    }
 }
 
 static void sendRaytacPing() {
-    if (!g_conn || !pClient || !pClient->isConnected() || !pNusRx) return;
+    if (g_connectionMode != CONN_DIRECT_123 || !g_conn || !pClient || !pClient->isConnected() || !pNusRx) return;
 
     const uint8_t ping = '$';
     bool ok = pNusRx->writeValue(&ping, 1, true);
@@ -1754,7 +1923,7 @@ static void sendRaytacPing() {
 }
 
 static void sendRaytacEnter() {
-    if (!g_conn || !pClient || !pClient->isConnected() || !pNusRx) return;
+    if (g_connectionMode != CONN_DIRECT_123 || !g_conn || !pClient || !pClient->isConnected() || !pNusRx) return;
 
     const uint8_t cr = '\r';
     bool ok = pNusRx->writeValue(&cr, 1, true);
@@ -1762,7 +1931,7 @@ static void sendRaytacEnter() {
 }
 
 static void sendRaytacCommand(const char* command) {
-    if (!g_conn || !pClient || !pClient->isConnected() || !pNusRx) return;
+    if (g_connectionMode != CONN_DIRECT_123 || !g_conn || !pClient || !pClient->isConnected() || !pNusRx) return;
 
     char buf[24];
     snprintf(buf, sizeof(buf), "%s\r$", command);
@@ -1772,7 +1941,7 @@ static void sendRaytacCommand(const char* command) {
 }
 
 static bool sendRaytacCommandChecked(const char* command) {
-    if (!g_conn || !pClient || !pClient->isConnected() || !pNusRx) {
+    if (g_connectionMode != CONN_DIRECT_123 || !g_conn || !pClient || !pClient->isConnected() || !pNusRx) {
         pushLog("Tune: kein BLE");
         return false;
     }
@@ -1846,7 +2015,7 @@ static void tuneZero() {
 }
 
 static void runReadOnlyDump() {
-    if (!g_conn || !pClient || !pClient->isConnected() || !pNusRx) return;
+    if (g_connectionMode != CONN_DIRECT_123 || !g_conn || !pClient || !pClient->isConnected() || !pNusRx) return;
 
     g_readBusy = true;
     pushLog("Read dump...");
@@ -1865,7 +2034,7 @@ static void runReadOnlyDump() {
 
 
 static void connectBLE() {
-    pushLog("Verbinde...");
+    pushLog(g_connectionMode == CONN_SPARTAN_GATEWAY ? "Verbinde GW..." : "Verbinde 123...");
     if (!pClient) {
         pClient = NimBLEDevice::createClient();
         pClient->setClientCallbacks(&clientCB, false);
@@ -1878,6 +2047,23 @@ static void connectBLE() {
     }
     logConnInfo("PostConnect");
     delay(750);
+
+    if (g_connectionMode == CONN_SPARTAN_GATEWAY) {
+        auto* svc = pClient->getService(SPARTAN_SVC);
+        if (!svc) {
+            pushLog("Kein GW SVC");
+            return;
+        }
+        auto* status = svc->getCharacteristic(SPARTAN_STATUS);
+        pGatewayCmd = svc->getCharacteristic(SPARTAN_CMD);
+        if (!status) {
+            pushLog("Kein GW Status");
+            return;
+        }
+        bool ok = status->subscribe(true, onAnyNotify, true);
+        pushLog("Sub GW: %s", ok ? "OK" : "FAIL");
+        return;
+    }
 
     // ALLE Services dumpen
     auto& svcs = pClient->getServices(true);
@@ -1961,7 +2147,9 @@ static void drawStatus() {
     display.setTextColor(g_demoMode ? (uint32_t)TFT_CYAN : (uint32_t)0x404040);
     char buf[16];
     if (g_demoMode) snprintf(buf, sizeof(buf), "SIM TEST");
-    else snprintf(buf, sizeof(buf), "IGN #%lu", (unsigned long)g_rxCnt);
+    else snprintf(buf, sizeof(buf), "%s #%lu",
+                  g_connectionMode == CONN_SPARTAN_GATEWAY ? "GW" : "IGN",
+                  (unsigned long)g_rxCnt);
     display.drawString(buf, 66, 34);
 
     display.setTextDatum(MR_DATUM);
@@ -2034,13 +2222,18 @@ static void drawMain() {
         display.drawString("ADVANCE  deg", 120, 106);
     }
 
-    snprintf(buf, sizeof(buf), "%.2f", mapBar());
     display.setFont(&fonts::Font4);
     display.setTextColor(TFT_SKYBLUE);
-    display.drawString(buf, 120, g_tuneActive ? 148 : 140);
+    snprintf(buf, sizeof(buf), "%.2f", mapBar());
+    display.drawString(buf, 72, g_tuneActive ? 148 : 140);
+    display.setTextColor(g_lambdaValid ? (uint32_t)TFT_GREEN : (uint32_t)TFT_DARKGREY);
+    if (g_lambdaValid) snprintf(buf, sizeof(buf), "%.2f", (float)g_lambda);
+    else snprintf(buf, sizeof(buf), "--");
+    display.drawString(buf, 168, g_tuneActive ? 148 : 140);
     display.setFont(&fonts::FreeSans9pt7b);
     display.setTextColor(TFT_DARKGREY);
-    display.drawString("MAP  bar", 120, g_tuneActive ? 170 : 162);
+    display.drawString("MAP bar", 72, g_tuneActive ? 170 : 162);
+    display.drawString("LAMBDA", 168, g_tuneActive ? 170 : 162);
 
     snprintf(buf, sizeof(buf), "%d", (int)g_rpm);
     display.setFont(&fonts::Font6);
@@ -2063,7 +2256,7 @@ static void drawSettings() {
     const bool systemPage = g_page == PAGE_SETTINGS2;
     const char* labelsMain[] = { "Buzzer", "Button tone", "BLE tone", "Error tone", "Touch nav", "Demo mode" };
     bool valuesMain[] = { g_buzzerEnabled, g_beepActions, g_beepBle, g_beepErrors, g_touchNavigation, g_demoMode };
-    const char* labelsSystem[] = { "Bat power", "Home+AP", "Brightness", "Rotation" };
+    const char* labelsSystem[] = { "Bat power", "Home+AP", "Brightness", "Rotation", "Conn" };
     bool valuesSystem[] = { g_batteryHoldEnabled, g_wifiHomeApEnabled };
     uint8_t count = settingCountForPage();
     display.fillRect(0, 44, 240, 196, TFT_BLACK);
@@ -2091,9 +2284,12 @@ static void drawSettings() {
         } else if (i == 2) {
             snprintf(value, sizeof(value), "%u", g_brightness);
             display.setTextColor(TFT_SKYBLUE);
-        } else {
+        } else if (i == 3) {
             snprintf(value, sizeof(value), "%u deg", displayRotationDegrees());
             display.setTextColor(TFT_SKYBLUE);
+        } else {
+            snprintf(value, sizeof(value), "%s", connectionModeLabel());
+            display.setTextColor(g_connectionMode == CONN_SPARTAN_GATEWAY ? (uint32_t)TFT_SKYBLUE : (uint32_t)TFT_ORANGE);
         }
         display.drawString(value, 208, y);
     }
@@ -2169,6 +2365,12 @@ static void activateSetting() {
                 g_rotationQuarterTurns = (g_rotationQuarterTurns + 1) % 4;
                 applyDisplayRotation();
                 pushLog("Rotation %u deg", displayRotationDegrees());
+                break;
+            case 4:
+                g_connectionMode = g_connectionMode == CONN_SPARTAN_GATEWAY ? CONN_DIRECT_123 : CONN_SPARTAN_GATEWAY;
+                disconnectBleForModeChange();
+                pushLog("Conn %s", connectionModeLabel());
+                startScan();
                 break;
         }
         saveUiSettings();
@@ -2342,7 +2544,10 @@ void loop() {
         beep(BEEP_ERROR);
     }
 
-    if (!g_demoMode && doConnect) { doConnect = false; connectBLE(); }
+    if ((g_connectionMode == CONN_SPARTAN_GATEWAY || !g_demoMode) && doConnect) {
+        doConnect = false;
+        connectBLE();
+    }
 
     if (!g_demoMode && g_readRequested && !g_readBusy) {
         g_readRequested = false;
