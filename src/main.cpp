@@ -87,7 +87,7 @@ static volatile float    g_lambda = 0;
 static volatile bool     g_conn  = false;
 static volatile bool     g_lambdaValid = false;
 static volatile uint32_t g_rxCnt = 0;
-enum UiPage : uint8_t { PAGE_MAIN, PAGE_AUX, PAGE_SETTINGS, PAGE_SETTINGS2, PAGE_TUNE, PAGE_COUNT };
+enum UiPage : uint8_t { PAGE_MAIN, PAGE_LAMBDA, PAGE_AUX, PAGE_SETTINGS, PAGE_SETTINGS2, PAGE_TUNE, PAGE_COUNT };
 enum BeepKind : uint8_t { BEEP_ACTION, BEEP_BLE, BEEP_ERROR };
 enum ConnectionMode : uint8_t { CONN_DIRECT_123 = 0, CONN_SPARTAN_GATEWAY = 1 };
 
@@ -130,8 +130,8 @@ static constexpr float kLogMinRpm = 650.0f;    // suppress ignition/start-only n
 static constexpr int kTuneMaxSteps = 10;       // temporary test correction limit in each direction
 static constexpr uint32_t kTuneArmTimeoutMs = 30000;  // ARM expires unless LIVE is confirmed
 static constexpr uint8_t kBuzzerChannel = 6;
-static constexpr uint8_t kSettingCountMain = 6;
-static constexpr uint8_t kSettingCountSystem = 5;
+static constexpr uint8_t kSettingCountMain = 7;
+static constexpr uint8_t kSettingCountSystem = 4;
 static constexpr uint8_t kUiSettingsVersion = 4;  // v4 adds Spartan gateway connection mode.
 static constexpr uint8_t kDisplayBaseRotation = 2;  // Existing upright installation is the 0 deg reference.
 static constexpr uint32_t kScanWindowMs = 10000;
@@ -437,12 +437,22 @@ static float mapBar() {
     return (float)g_map / 100.0f;
 }
 
+static uint32_t lambdaColor()
+{
+    if (!g_lambdaValid) return (uint32_t)TFT_DARKGREY;
+    if (g_lambda < 0.8f) return (uint32_t)TFT_YELLOW;
+    if (g_lambda < 0.9f) return (uint32_t)TFT_GREEN;
+    if (g_lambda < 1.0f) return (uint32_t)TFT_ORANGE;
+    return (uint32_t)TFT_RED;
+}
+
 static const char* connectionModeLabel() {
     return g_connectionMode == CONN_SPARTAN_GATEWAY ? "Gateway" : "123 dir";
 }
 
 static const char* pageName() {
     switch (g_page) {
+        case PAGE_LAMBDA: return "LAM";
         case PAGE_AUX: return "T/V";
         case PAGE_SETTINGS: return "SET";
         case PAGE_SETTINGS2: return "SET2";
@@ -558,6 +568,9 @@ static void advancePage() {
 
 static void toggleDrivePageFromTouch() {
     if (g_page == PAGE_MAIN) {
+        g_page = PAGE_LAMBDA;
+        beep(BEEP_ACTION);
+    } else if (g_page == PAGE_LAMBDA) {
         g_page = PAGE_AUX;
         beep(BEEP_ACTION);
     } else if (g_page == PAGE_AUX) {
@@ -741,8 +754,8 @@ static void handleRoot() {
     html += ".controls{display:grid;gap:10px;max-width:400px}.toggle-row,.select-row{display:flex;align-items:center;justify-content:space-between;gap:18px}.toggle-row input{width:22px;height:22px;margin:0;padding:0;accent-color:#e94b1b}.slider-row{display:grid;gap:4px}.slider-row span{display:flex;justify-content:space-between}.slider-row input{box-sizing:border-box;width:100%;margin:0;padding:0;accent-color:#e94b1b}.select-row select{padding:7px 9px;background:#1c1c1c;color:#eee;border:1px solid #444;border-radius:4px}.ui-result{min-height:20px;margin:0;color:#e94b1b}";
     html += ".dial{width:min(82vw,320px);aspect-ratio:1;border-radius:50%;background:#050505;margin:4px 0 18px;position:relative;border:10px solid #242424;box-shadow:inset 0 0 38px #1d2830,0 0 16px #000;color:#ddd;overflow:hidden}";
     html += ".top{position:absolute;top:28px;left:0;right:0;font-size:14px;font-weight:700}.ble{position:absolute;left:72px;color:#2577ff}.ign{position:absolute;left:72px;top:16px;color:#e93b2f}.mode{position:absolute;right:72px;color:#3e75ff}";
-    html += ".adv{position:absolute;top:76px;left:0;right:0;text-align:center;font-size:58px;line-height:1;font-weight:800;color:#f39c12}.lbl{font-size:14px;color:#ccc;font-weight:700;letter-spacing:0}.tunelbl{position:absolute;top:135px;left:0;right:0;text-align:center;font-size:16px;font-weight:800;color:#f39c12}";
-    html += ".map{position:absolute;top:162px;left:42px;width:76px;text-align:center;font-size:28px;font-weight:800;color:#46b9ff}.maplbl{position:absolute;top:193px;left:42px;width:76px;text-align:center;color:#888;font-size:14px;font-weight:700}.lambda{position:absolute;top:162px;left:128px;width:86px;text-align:center;font-size:28px;font-weight:800;color:#35d46b}.lambdalbl{position:absolute;top:193px;left:128px;width:86px;text-align:center;color:#888;font-size:14px;font-weight:700}";
+    html += ".adv{position:absolute;top:84px;left:0;right:0;text-align:center;font-size:46px;line-height:1;font-weight:800;color:#f39c12}.lbl{font-size:14px;color:#ccc;font-weight:700;letter-spacing:0}.tunelbl{position:absolute;top:130px;left:0;right:0;text-align:center;font-size:14px;font-weight:800;color:#f39c12}";
+    html += ".map{position:absolute;top:162px;left:28px;width:68px;text-align:center;font-size:22px;font-weight:800;color:#46b9ff}.maplbl{position:absolute;top:190px;left:28px;width:68px;text-align:center;color:#888;font-size:12px;font-weight:700}.lambda{position:absolute;top:150px;left:112px;width:110px;text-align:center;font-size:40px;font-weight:900;color:#35d46b}.lambdalbl{position:absolute;top:195px;left:112px;width:110px;text-align:center;color:#888;font-size:12px;font-weight:700}";
     html += ".rpm{position:absolute;bottom:30px;left:0;right:0;text-align:center;font-size:44px;font-weight:800;color:#fff}.rpmlbl{position:absolute;bottom:14px;left:0;right:0;text-align:center;color:#888;font-size:14px;font-weight:700}";
     html += ".big1{position:absolute;top:82px;left:0;right:0;text-align:center;font-size:58px;line-height:1;font-weight:800}.lbl1{position:absolute;top:138px;left:0;right:0;text-align:center;color:#ddd;font-size:16px;font-weight:800}.big2{position:absolute;top:174px;left:0;right:0;text-align:center;font-size:58px;line-height:1;font-weight:800}.lbl2{position:absolute;top:230px;left:0;right:0;text-align:center;color:#ddd;font-size:16px;font-weight:800}";
     html += ".screen-title{position:absolute;top:54px;left:0;right:0;text-align:center;font-size:22px;font-weight:800;color:#efefef}.items{position:absolute;top:78px;left:45px;right:42px;font-size:13px;font-weight:700;line-height:1.35}.item{display:flex;justify-content:space-between;color:#888}.item.sel{color:#f39c12}.on{color:#35d46b}.off{color:#777}.demo{color:#00d7db}.warn{color:#ff453a}.safe{color:#ffab19}.tunestate{position:absolute;top:92px;left:0;right:0;text-align:center;font-size:27px;font-weight:800}.tunehelp{position:absolute;top:128px;left:30px;right:30px;text-align:center;color:#aaa;font-size:13px;font-weight:700}.tunestep{position:absolute;top:164px;left:0;right:0;text-align:center;font-size:56px;font-weight:800}.tunemetric{position:absolute;bottom:28px;left:0;right:0;text-align:center;color:#aaa;font-size:14px;font-weight:700}";
@@ -768,14 +781,14 @@ static void handleRoot() {
     html += "<div id='set2' class='item'><span>BLE tone</span><span id='blebeep' class='" + String(g_beepBle ? "on'>ON" : "off'>OFF") + "</span></div>";
     html += "<div id='set3' class='item'><span>Error tone</span><span id='errbeep' class='" + String(g_beepErrors ? "on'>ON" : "off'>OFF") + "</span></div>";
     html += "<div id='set4' class='item'><span>Touch nav</span><span id='touchnav' class='" + String(g_touchNavigation ? "on'>ON" : "off'>OFF") + "</span></div>";
-    html += "<div id='set5' class='item'><span>Demo mode</span><span id='demomode' class='" + String(g_demoMode ? "demo'>ON" : "off'>OFF") + "</span></div></div></div>";
+    html += "<div id='set5' class='item'><span>Demo mode</span><span id='demomode' class='" + String(g_demoMode ? "demo'>ON" : "off'>OFF") + "</span></div>";
+    html += "<div id='set6' class='item'><span>Conn</span><span id='connmode' class='off'>" + String(connectionModeLabel()) + "</span></div></div></div>";
     html += "<div class='dial'><div class='top'><span id='ble4' class='ble'>" + liveText + "</span><span id='ign4' class='ign'>" + ignitionText + "</span><span class='mode'>SET2</span></div>";
     html += "<div class='screen-title'>SYSTEM</div><div class='items'>";
     html += "<div id='sys0' class='item'><span>Bat power</span><span id='bathold' class='" + String(g_batteryHoldEnabled ? "on'>ON" : "off'>OFF") + "</span></div>";
     html += "<div id='sys1' class='item'><span>Home+AP</span><span id='wifiapsta' class='" + String(g_wifiHomeApEnabled ? "on'>ON" : "off'>OFF") + "</span></div>";
     html += "<div id='sys2' class='item'><span>Brightness</span><span id='bright'>" + String(g_brightness) + "</span></div>";
-    html += "<div id='sys3' class='item'><span>Rotation</span><span id='rotation'>" + String(displayRotationDegrees()) + " deg</span></div>";
-    html += "<div id='sys4' class='item'><span>Conn</span><span id='connmode'>" + String(connectionModeLabel()) + "</span></div></div></div>";
+    html += "<div id='sys3' class='item'><span>Rotation</span><span id='rotation'>" + String(displayRotationDegrees()) + " deg</span></div></div></div>";
     html += "<div class='dial'><div class='top'><span id='ble5' class='ble'>" + liveText + "</span><span id='ign5' class='ign'>" + ignitionText + "</span><span class='mode warn'>TUNE</span></div>";
     html += "<div id='tunetitle' class='screen-title " + String(g_demoMode ? "demo" : "warn") + "'>" + tuneTitle + "</div><div id='tunestate' class='tunestate safe'>" + tuneState + "</div>";
     html += "<div id='tunehelp' class='tunehelp'>Hold on device 2s to ARM</div><div id='tunestep' class='tunestep orange'>+0</div>";
@@ -824,11 +837,12 @@ static void handleRoot() {
     html += "adv.textContent=Number(d.adv).toFixed(1);adv.className='adv '+c(d.tune_steps);";
     html += "tunelbl.textContent=d.tune_active?('TUNE '+(d.tune_steps>=0?'+':'')+d.tune_steps):'ADVANCE  deg';tunelbl.className='tunelbl '+c(d.tune_steps);";
     html += "map.textContent=Number(d.map_bar).toFixed(2);lambda.textContent=d.lambda_valid?Number(d.lambda).toFixed(2):'--';rpm.textContent=d.rpm;aux1.textContent=d.temp;aux2.textContent=Number(d.volt).toFixed(1);";
+    html += "if(!d.lambda_valid){lambda.style.color='#666'}else if(d.lambda<0.8){lambda.style.color='#ffd54a'}else if(d.lambda<0.9){lambda.style.color='#35d46b'}else if(d.lambda<1.0){lambda.style.color='#f39c12'}else{lambda.style.color='#ff3838'};";
     html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);yn('demomode',d.demo);if(d.demo)demomode.className='demo';yn('bathold',d.battery_hold);yn('wifiapsta',d.wifi_home_ap);bright.textContent=d.brightness;rotation.textContent=d.rotation_deg+' deg';connmode.textContent=d.connection_label;";
     html += "ctl_buzzer.checked=d.buzzer;ctl_button.checked=d.beep_actions;ctl_ble.checked=d.beep_ble;ctl_error.checked=d.beep_errors;ctl_touch.checked=d.touch_nav;ctl_demo.checked=d.demo;ctl_bathold.checked=d.battery_hold;ctl_wifiapsta.checked=d.wifi_home_ap;ctl_bright.value=d.brightness;ctl_bright_value.textContent=d.brightness;ctl_rotation.value=String(d.rotation_deg);ctl_conn.value=d.connection;";
     html += "ctl_buzzer.disabled=d.settings_locked&&!d.buzzer;ctl_button.disabled=d.settings_locked&&!d.beep_actions;ctl_ble.disabled=d.settings_locked&&!d.beep_ble;ctl_error.disabled=d.settings_locked&&!d.beep_errors;ctl_touch.disabled=d.settings_locked&&!d.touch_nav;ctl_demo.disabled=d.settings_locked&&!d.demo;ctl_bathold.disabled=d.settings_locked;ctl_wifiapsta.disabled=d.settings_locked;ctl_bright.disabled=d.settings_locked;ctl_rotation.disabled=d.settings_locked;ctl_conn.disabled=d.settings_locked;";
-    html += "for(let i=0;i<6;i++)document.getElementById('set'+i).className='item '+(d.page=='SET'&&i==d.setting_index?'sel':'');";
-    html += "for(let i=0;i<5;i++)document.getElementById('sys'+i).className='item '+(d.page=='SET2'&&i==d.setting_index?'sel':'');";
+    html += "for(let i=0;i<7;i++)document.getElementById('set'+i).className='item '+(d.page=='SET'&&i==d.setting_index?'sel':'');";
+    html += "for(let i=0;i<4;i++)document.getElementById('sys'+i).className='item '+(d.page=='SET2'&&i==d.setting_index?'sel':'');";
     html += "tunetitle.textContent=d.demo?'DEMO TUNE':'LIVE TUNE';tunetitle.className='screen-title '+(d.demo?'demo':'warn');";
     html += "let st=d.tune_active?(d.demo?'SIM LIVE':'LIVE'):(d.tune_armed?(d.demo?'SIM ARMED':'ARMED'):'LOCKED');tunestate.textContent=st;tunestate.className='tunestate '+(d.demo?'demo':(d.tune_active?'warn':(d.tune_armed?'safe':'off')));";
     html += "tunehelp.textContent=d.tune_active?'Rotate on device +/-; hold 2s to EXIT':(d.tune_armed?'Hold on device 2s to START':'Hold on device 2s to ARM');";
@@ -1205,13 +1219,17 @@ static void stopDemoMode(const char* reason, bool resumeBle) {
     g_lastTuneStepMs = 0;
     g_touchDown = false;
     g_page = PAGE_MAIN;
-    if (!g_conn) {
+    if (!g_conn || g_connectionMode == CONN_SPARTAN_GATEWAY) {
         g_rpm = 0;
         g_adv = 0;
         g_map = 0;
-        g_tmp = 0;
         g_vlt = 0;
         g_cur = 0;
+        if (!g_conn) {
+            g_tmp = 0;
+            g_lambda = 0;
+            g_lambdaValid = false;
+        }
     }
     pushLog("%s", reason);
     if (resumeBle && !g_conn) {
@@ -2201,7 +2219,7 @@ static void drawMain() {
     display.setTextDatum(MC_DATUM);
 
     snprintf(buf, sizeof(buf), "%.1f", (float)g_adv);
-    display.setFont(&fonts::Font7);
+    display.setFont(&fonts::Font4);
     display.setTextColor(g_tuneSteps > 0 ? (uint32_t)TFT_RED :
                          g_tuneSteps < 0 ? (uint32_t)TFT_SKYBLUE :
                                            (uint32_t)TFT_ORANGE);
@@ -2217,23 +2235,24 @@ static void drawMain() {
         display.drawString(tuneBuf, 120, 102);
         display.setFont(&fonts::FreeSans9pt7b);
         display.setTextColor(TFT_DARKGREY);
-        display.drawString("ADVANCE  deg", 120, 119);
+        display.drawString("ADVANCE  deg", 120, 117);
     } else {
-        display.drawString("ADVANCE  deg", 120, 106);
+        display.drawString("ADVANCE  deg", 120, 102);
     }
 
-    display.setFont(&fonts::Font4);
+    display.setFont(&fonts::Font2);
     display.setTextColor(TFT_SKYBLUE);
     snprintf(buf, sizeof(buf), "%.2f", mapBar());
-    display.drawString(buf, 72, g_tuneActive ? 148 : 140);
-    display.setTextColor(g_lambdaValid ? (uint32_t)TFT_GREEN : (uint32_t)TFT_DARKGREY);
+    display.drawString(buf, 58, g_tuneActive ? 148 : 140);
+    display.setTextColor(lambdaColor());
     if (g_lambdaValid) snprintf(buf, sizeof(buf), "%.2f", (float)g_lambda);
     else snprintf(buf, sizeof(buf), "--");
-    display.drawString(buf, 168, g_tuneActive ? 148 : 140);
+    display.setFont(&fonts::Font4);
+    display.drawString(buf, 174, g_tuneActive ? 148 : 140);
     display.setFont(&fonts::FreeSans9pt7b);
     display.setTextColor(TFT_DARKGREY);
-    display.drawString("MAP bar", 72, g_tuneActive ? 170 : 162);
-    display.drawString("LAMBDA", 168, g_tuneActive ? 170 : 162);
+    display.drawString("MAP bar", 58, g_tuneActive ? 170 : 162);
+    display.drawString("LAMBDA", 174, g_tuneActive ? 170 : 162);
 
     snprintf(buf, sizeof(buf), "%d", (int)g_rpm);
     display.setFont(&fonts::Font6);
@@ -2242,6 +2261,49 @@ static void drawMain() {
     display.setFont(&fonts::FreeSans9pt7b);
     display.setTextColor(TFT_DARKGREY);
     display.drawString("RPM", 120, 224);
+}
+
+static void drawLambdaPage() {
+    char buf[20];
+    display.fillScreen(TFT_BLACK);
+    display.setTextDatum(MC_DATUM);
+
+    display.setFont(&fonts::FreeSans12pt7b);
+    display.setTextColor(TFT_DARKGREY);
+    display.drawString("LAMBDA", 120, 42);
+
+    display.setTextColor(lambdaColor());
+    display.setFont(&fonts::FreeSans24pt7b);
+    if (g_lambdaValid) snprintf(buf, sizeof(buf), "%.2f", (float)g_lambda);
+    else snprintf(buf, sizeof(buf), "--");
+    display.drawString(buf, 120, 100);
+
+    const char* rangeText = "kein Signal";
+    if (g_lambdaValid) {
+        if (g_lambda < 0.8f) rangeText = "< 0.80";
+        else if (g_lambda < 0.9f) rangeText = "0.80 - 0.89";
+        else if (g_lambda < 1.0f) rangeText = "0.90 - 0.99";
+        else rangeText = ">= 1.00";
+    }
+    display.setFont(&fonts::FreeSans9pt7b);
+    display.setTextColor(lambdaColor());
+    display.drawString(rangeText, 120, 142);
+
+    display.setTextColor(TFT_DARKGREY);
+    display.drawString(connectionModeLabel(), 120, 166);
+
+    display.setFont(&fonts::Font2);
+    display.setTextColor(TFT_SKYBLUE);
+    snprintf(buf, sizeof(buf), "MAP %.2f", mapBar());
+    display.drawString(buf, 65, 204);
+    display.setTextColor(TFT_ORANGE);
+    snprintf(buf, sizeof(buf), "ADV %.1f", (float)g_adv);
+    display.drawString(buf, 175, 204);
+
+    display.setFont(&fonts::FreeSans9pt7b);
+    display.setTextColor(TFT_WHITE);
+    snprintf(buf, sizeof(buf), "RPM %d", (int)g_rpm);
+    display.drawString(buf, 120, 224);
 }
 
 static void drawAux() {
@@ -2254,9 +2316,9 @@ static void drawAux() {
 
 static void drawSettings() {
     const bool systemPage = g_page == PAGE_SETTINGS2;
-    const char* labelsMain[] = { "Buzzer", "Button tone", "BLE tone", "Error tone", "Touch nav", "Demo mode" };
+    const char* labelsMain[] = { "Buzzer", "Button tone", "BLE tone", "Error tone", "Touch nav", "Demo mode", "Conn" };
     bool valuesMain[] = { g_buzzerEnabled, g_beepActions, g_beepBle, g_beepErrors, g_touchNavigation, g_demoMode };
-    const char* labelsSystem[] = { "Bat power", "Home+AP", "Brightness", "Rotation", "Conn" };
+    const char* labelsSystem[] = { "Bat power", "Home+AP", "Brightness", "Rotation" };
     bool valuesSystem[] = { g_batteryHoldEnabled, g_wifiHomeApEnabled };
     uint8_t count = settingCountForPage();
     display.fillRect(0, 44, 240, 196, TFT_BLACK);
@@ -2274,10 +2336,13 @@ static void drawSettings() {
         display.drawString(systemPage ? labelsSystem[i] : labelsMain[i], 43, y);
         display.setTextDatum(MR_DATUM);
         char value[12];
-        if (!systemPage) {
+        if (!systemPage && i < 6) {
             snprintf(value, sizeof(value), "%s", valuesMain[i] ? "ON" : "OFF");
             display.setTextColor(i == 5 && valuesMain[i] ? (uint32_t)TFT_CYAN :
                                  (valuesMain[i] ? (uint32_t)TFT_GREEN : (uint32_t)TFT_DARKGREY));
+        } else if (!systemPage && i == 6) {
+            snprintf(value, sizeof(value), "%s", connectionModeLabel());
+            display.setTextColor(g_connectionMode == CONN_SPARTAN_GATEWAY ? (uint32_t)TFT_SKYBLUE : (uint32_t)TFT_ORANGE);
         } else if (i < 2) {
             snprintf(value, sizeof(value), "%s", valuesSystem[i] ? "ON" : "OFF");
             display.setTextColor(valuesSystem[i] ? (uint32_t)TFT_GREEN : (uint32_t)TFT_DARKGREY);
@@ -2287,9 +2352,6 @@ static void drawSettings() {
         } else if (i == 3) {
             snprintf(value, sizeof(value), "%u deg", displayRotationDegrees());
             display.setTextColor(TFT_SKYBLUE);
-        } else {
-            snprintf(value, sizeof(value), "%s", connectionModeLabel());
-            display.setTextColor(g_connectionMode == CONN_SPARTAN_GATEWAY ? (uint32_t)TFT_SKYBLUE : (uint32_t)TFT_ORANGE);
         }
         display.drawString(value, 208, y);
     }
@@ -2366,12 +2428,6 @@ static void activateSetting() {
                 applyDisplayRotation();
                 pushLog("Rotation %u deg", displayRotationDegrees());
                 break;
-            case 4:
-                g_connectionMode = g_connectionMode == CONN_SPARTAN_GATEWAY ? CONN_DIRECT_123 : CONN_SPARTAN_GATEWAY;
-                disconnectBleForModeChange();
-                pushLog("Conn %s", connectionModeLabel());
-                startScan();
-                break;
         }
         saveUiSettings();
         if (g_buzzerEnabled) beep(BEEP_ACTION);
@@ -2393,6 +2449,12 @@ static void activateSetting() {
         case 5:
             if (g_demoMode) stopDemoMode("DEMO AUS", true);
             else startDemoMode();
+            break;
+        case 6:
+            g_connectionMode = g_connectionMode == CONN_SPARTAN_GATEWAY ? CONN_DIRECT_123 : CONN_SPARTAN_GATEWAY;
+            disconnectBleForModeChange();
+            pushLog("Conn %s", connectionModeLabel());
+            startScan();
             break;
     }
     saveUiSettings();
@@ -2577,11 +2639,13 @@ void loop() {
         appendLiveCsv();
     }
 
-    drawStatus();
+    if (g_page != PAGE_LAMBDA) drawStatus();
     if (!g_demoMode && g_rxCnt == 0 && (g_page == PAGE_MAIN || g_page == PAGE_AUX)) {
         drawLog();
     } else if (g_page == PAGE_MAIN) {
         drawMain();
+    } else if (g_page == PAGE_LAMBDA) {
+        drawLambdaPage();
     } else if (g_page == PAGE_AUX) {
         drawAux();
     } else if (isSettingsPage()) {
