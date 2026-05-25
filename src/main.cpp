@@ -137,6 +137,10 @@ static constexpr uint8_t kDisplayBaseRotation = 2;  // Existing upright installa
 static constexpr uint32_t kScanWindowMs = 10000;
 static constexpr uint32_t kScanPauseMs[] = { 5000, 10000, 20000, 30000 };
 static constexpr uint32_t kWifiConnectWindowMs = 15000;
+static constexpr const char* kSpartanApSsid = "Spartan3-Setup";
+static constexpr const char* kSpartanApPassword = "lambda123";
+static constexpr const char* kSpartanApM5Ip = "192.168.4.2";
+static constexpr const char* kSpartanApGateway = "192.168.4.1";
 static uint8_t g_scanPauseIndex = 0;
 static uint32_t g_nextScanAt = 0;
 
@@ -824,8 +828,11 @@ static void handleRoot() {
     html += "<div class='box'><h3>Home WiFi</h3><form action='/wifi' method='get'>";
     html += "<input name='ssid' placeholder='SSID'><input name='pass' placeholder='Password' type='password'>";
     html += "<button type='submit'>Save WiFi and reboot</button></form>";
+    html += "<button onclick=\"fetch('/wifi_spartan',{method:'POST'}).then(r=>r.text()).then(t=>{document.getElementById('wifi_result').textContent=t;setTimeout(()=>location.href='http://192.168.4.2/',2500)})\">Use Spartan AP (192.168.4.2)</button>";
+    html += "<p id='wifi_result' class='muted'></p>";
     html += "<a href='/wps'>Start WPS</a>";
     html += "<p class='muted'>WPS: first click Start WPS here, then press Connect/WPS on the FRITZ!Box.</p>";
+    html += "<p class='muted'>Unterwegs: Handy mit Spartan3-Setup verbinden. Spartan bleibt http://192.168.4.1/, M5 wird http://192.168.4.2/.</p>";
     html += "<p class='muted'>While stationary, setup fallback uses M5Dial-123-Setup with DHCP at 192.168.4.1. If RPM rises above 650 before Home WiFi connects, WiFi setup is switched off for quiet driving.</p></div></div></div>";
     html += "<script>";
     html += "function c(s){return s>0?'red':s<0?'blue':'orange'}";
@@ -926,6 +933,29 @@ static void handleWifiSave() {
     ESP.restart();
 }
 
+static void saveSpartanApWifiPreset() {
+    prefs.putString("ssid", kSpartanApSsid);
+    prefs.putString("pass", kSpartanApPassword);
+    prefs.putBool("static", true);
+    prefs.putString("ip", kSpartanApM5Ip);
+    prefs.putString("gw", kSpartanApGateway);
+    prefs.putString("mask", "255.255.255.0");
+    prefs.putString("dns", kSpartanApGateway);
+    g_wifiHomeApEnabled = false;
+    saveUiSettings();
+}
+
+static void handleSpartanWifiPreset() {
+    if (wifiSetupBlockedWhileDriving()) {
+        web.send(409, "text/plain", "Spartan AP preset blocked while RPM > 650");
+        return;
+    }
+    saveSpartanApWifiPreset();
+    web.send(200, "text/plain", "Saved Spartan AP preset. Rebooting to 192.168.4.2...");
+    delay(500);
+    ESP.restart();
+}
+
 static void handleClearLog() {
     if (g_fsOk) {
         SPIFFS.remove(LOG_FILE);
@@ -1005,6 +1035,7 @@ static void setupWebGui() {
     web.on("/ui", HTTP_POST, handleUiSetting);
     web.on("/time_set", HTTP_GET, handleTimeSet);
     web.on("/wifi", HTTP_GET, handleWifiSave);
+    web.on("/wifi_spartan", HTTP_POST, handleSpartanWifiPreset);
     web.on("/wps", HTTP_GET, handleWpsStart);
     web.on("/clear", HTTP_GET, handleClearLog);
     web.on("/download", HTTP_GET, []() { sendLogFile(LOG_FILE, "m5dial_123tune_drive.csv"); });
@@ -1540,6 +1571,18 @@ static void handleSerialCommand(String line) {
         return;
     }
 
+    if (line.equalsIgnoreCase("wifi_spartan")) {
+        if (wifiSetupBlockedWhileDriving()) {
+            Serial.println("[WIFI] setup blocked while RPM > 650");
+            return;
+        }
+        saveSpartanApWifiPreset();
+        Serial.println("[WIFI] saved Spartan AP preset, rebooting to 192.168.4.2");
+        delay(300);
+        ESP.restart();
+        return;
+    }
+
     if (line.equalsIgnoreCase("time_status")) {
         Serial.printf("[TIME] valid=%d epoch=%ld local=%s source=%s ntp_started=%d polls=%d rtc=%d/%d gw=%s dns=%s\n",
                       g_timeValid ? 1 : 0,
@@ -1702,7 +1745,7 @@ static void handleSerialCommand(String line) {
         return;
     }
 
-    Serial.println("[CMD] unknown. use: ui_status | demo_status | demo_on | demo_off | rotation_next | rotation_reset | buzzer_off | touch_off | battery_hold_on | battery_hold_off | wifi_home_ap_on | wifi_home_ap_off | wifi_status | wifi_off | wifi_ap | time_status | time_set <epoch> | tune_arm | tune_on | tune_up | tune_down | tune_zero | tune_off | tune_disarm | wifi_clear | wifi_dhcp | wifi <ssid> <pass> | wifi_static <ssid> <pass> <ip>");
+    Serial.println("[CMD] unknown. use: ui_status | demo_status | demo_on | demo_off | rotation_next | rotation_reset | buzzer_off | touch_off | battery_hold_on | battery_hold_off | wifi_home_ap_on | wifi_home_ap_off | wifi_status | wifi_off | wifi_ap | wifi_spartan | time_status | time_set <epoch> | tune_arm | tune_on | tune_up | tune_down | tune_zero | tune_off | tune_disarm | wifi_clear | wifi_dhcp | wifi <ssid> <pass> | wifi_static <ssid> <pass> <ip>");
 }
 
 static void pollSerialCommands() {
