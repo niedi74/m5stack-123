@@ -3,11 +3,17 @@
  *
  * Hardware:
  *   SN65HVD230  CAN-TX → GPIO5,  CAN-RX → GPIO4
- *   Spartan 3 V2 Blue (CAN-H) → SN65HVD230 CANH
+ *   Spartan 3 V2 Blue (CAN-H)   → SN65HVD230 CANH
  *   Spartan 3 V2 Purple (CAN-L) → SN65HVD230 CANL
- *   Spartan 3 V2 Black + White → GND
- *   Spartan 3 V2 Red → 12V switched (lab PSU during bench test)
+ *   Spartan 3 V2 Black + White  → GND
+ *   Spartan 3 V2 Red            → 12V switched
  *   LSU 4.9 sensor plugged into Spartan
+ *
+ *   Hella 6PP 010 378-201 (Öldruck + Öltemperatur, M12×1.5):
+ *     Pin 1 GND  → GND
+ *     Pin 2 Druck (0.5–4.5V) → 10kΩ/33kΩ Teiler → GPIO34  (max ~3.1V)
+ *     Pin 3 Temp  (NTC)      → 2.2kΩ Pull-up 3.3V → GPIO35
+ *   Sensor-Versorgung: Pin 2 intern geregelt (kein ext. 5V nötig für GND+Signal)
  *
  * Exposes BLE GATT server:
  *   Name:    Spartan3-Hub
@@ -15,46 +21,78 @@
  *     Notify:  7f510002  (compact text every 250 ms)
  *     Write:   7f510003  (commands: "DEMO", "CAN", "RESET")
  *
- * Compact notify format (matches M5Stack decodeGatewayCompact):
- *   L{lambda}R{rpm}A{adv}M{map_kpa}
- * where rpm/adv/map are 0 until 123TUNE+ integration is added.
- *
- * Lambda is invalid (status != 3) → notify "L0.000R0A0.0M0" still sent
- * so M5 can detect gateway presence; lambdaValid only set on status=3.
+ * Compact notify format (extended):
+ *   L{lambda}R{rpm}A{adv}M{map_kpa}P{oil_bar}O{oil_c}
+ *   P/O present only when oil sensor wired (OIL_SENSOR_ENABLED=1)
  *
  * Serial output (115200):
- *   [  ms] CAN λ=0.987 AFR=14.5 Temp=350°C Status=3 raw=3CF 57 03
- *   [  ms] BLE notify L0.987R0A0.0M0
- *   [  ms] BLE client connected / disconnected
+ *   [  ms] CAN λ=0.987 AFR=14.5 Temp=350°C Status=3
+ *   [  ms] OIL 3.2bar 95°C  raw_p=2876 raw_t=1543
+ *   [  ms] BLE notify L0.987R0A0.0M0P3.2O95
  */
 
 #include <Arduino.h>
 #include <driver/twai.h>
 #include <NimBLEDevice.h>
+#include <math.h>
 
 // --- CAN ---
 #define CAN_TX_PIN  GPIO_NUM_5
 #define CAN_RX_PIN  GPIO_NUM_4
-#define SPARTAN_CAN_ID   1024
+#define SPARTAN_CAN_ID      1024
 #define LAMBDA_VALID_STATUS 3
 
+// --- Hella 6PP 010 378-201 oil sensor ---
+// Set to 0 to compile without oil sensor (saves ADC reads)
+#define OIL_SENSOR_ENABLED  1
+#define OIL_PRESSURE_PIN    34   // 0.5–4.5V via 10kΩ/33kΩ divider
+#define OIL_TEMP_PIN        35   // NTC via 2.2kΩ pull-up to 3.3V
+
+// Pressure: ratiometric 0.5–4.5V = 0.5–10.5 bar
+// With divider 10k/33k: V_adc = V_sensor * 33/(10+33)
+// V_sensor = V_adc * 43/33
+static inline float adcToOilBar(int raw) {
+    float v_adc    = raw * 3.3f / 4095.0f;
+    float v_sensor = v_adc * (10.0f + 33.0f) / 33.0f;  // back to 0–4.5V
+    // 0.5V = 0.5 bar, 4.5V = 10.5 bar  →  bar = (v - 0.5) * 10.0/4.0 + 0.5
+    float bar = (v_sensor - 0.5f) * (10.0f / 4.0f) + 0.5f;
+    if (bar < 0.0f) bar = 0.0f;
+    return bar;
+}
+
+// Temperature: NTC Steinhart-Hart (Hella typical: B=3977K, R25=2252Ω)
+// Pull-up R_pu = 2200Ω to 3.3V, V_adc on junction
+static inline float adcToOilTempC(int raw) {
+    if (raw <= 0 || raw >= 4095) return -99.0f;
+    float v     = raw * 3.3f / 4095.0f;
+    float r_ntc = 2200.0f * v / (3.3f - v);   // pull-up divider
+    // Steinhart-Hart simplified (B-parameter equation)
+    const float B    = 3977.0f;
+    const float R25  = 2252.0f;
+    const float T25K = 298.15f;
+    float tempK = 1.0f / (1.0f / T25K + logf(r_ntc / R25) / B);
+    return tempK - 273.15f;
+}
+
 // --- BLE ---
-static const char* BLE_NAME     = "Spartan3-Hub";
-static const char* SVC_UUID     = "7f510001-5a6b-4d2a-9f20-14a7f3e20000";
-static const char* NOTIFY_UUID  = "7f510002-5a6b-4d2a-9f20-14a7f3e20000";
-static const char* CMD_UUID     = "7f510003-5a6b-4d2a-9f20-14a7f3e20000";
+static const char* BLE_NAME    = "Spartan3-Hub";
+static const char* SVC_UUID    = "7f510001-5a6b-4d2a-9f20-14a7f3e20000";
+static const char* NOTIFY_UUID = "7f510002-5a6b-4d2a-9f20-14a7f3e20000";
+static const char* CMD_UUID    = "7f510003-5a6b-4d2a-9f20-14a7f3e20000";
 
 static const uint32_t NOTIFY_INTERVAL_MS = 250;
 
 // --- State ---
-static volatile float    g_lambda = 0.0f;
-static volatile int      g_temp   = 0;
-static volatile int      g_status = 0;
+static volatile float    g_lambda      = 0.0f;
+static volatile int      g_temp        = 0;
+static volatile int      g_status      = 0;
 static volatile bool     g_lambdaValid = false;
-static volatile uint32_t g_lastCanMs  = 0;
-static volatile float    g_rpm = 0.0f;
-static volatile float    g_adv = 0.0f;
-static volatile float    g_map = 0.0f;
+static volatile uint32_t g_lastCanMs   = 0;
+static volatile float    g_rpm         = 0.0f;
+static volatile float    g_adv         = 0.0f;
+static volatile float    g_map         = 0.0f;
+static volatile float    g_oilBar      = 0.0f;
+static volatile float    g_oilTempC    = 0.0f;
 
 static bool g_demoMode = false;
 static bool g_canReady = false;
@@ -144,6 +182,24 @@ static void pollCAN() {
     }
 }
 
+// --- Oil sensor read (Hella 6PP 010 378-201) ---
+#if OIL_SENSOR_ENABLED
+static void pollOilSensor() {
+    static uint32_t lastOilMs = 0;
+    if (millis() - lastOilMs < 500) return;  // read every 500 ms
+    lastOilMs = millis();
+
+    int rawP = analogRead(OIL_PRESSURE_PIN);
+    int rawT = analogRead(OIL_TEMP_PIN);
+
+    g_oilBar   = adcToOilBar(rawP);
+    g_oilTempC = adcToOilTempC(rawT);
+
+    Serial.printf("[%6lums] OIL %.1fbar %.0f°C  raw_p=%d raw_t=%d\n",
+                  millis(), (float)g_oilBar, (float)g_oilTempC, rawP, rawT);
+}
+#endif
+
 // --- Demo mode: simulate heating + warm lambda ~1.0 ±0.05 ---
 static void updateDemo() {
     static uint32_t demoStart = 0;
@@ -151,7 +207,6 @@ static void updateDemo() {
     uint32_t age = millis() - demoStart;
 
     if (age < 8000) {
-        // heating phase
         g_status      = 2;
         g_lambdaValid = false;
         g_temp        = (int)(age / 8000.0f * 700);
@@ -160,9 +215,11 @@ static void updateDemo() {
         g_status      = 3;
         g_lambdaValid = true;
         g_temp        = 750 + (int)(sin(age * 0.001f) * 20);
-        // gentle oscillation around stoich
-        g_lambda = 1.0f + 0.05f * sin(age * 0.0008f);
+        g_lambda      = 1.0f + 0.05f * sin(age * 0.0008f);
     }
+    // Demo oil values: warm idle
+    g_oilBar   = 3.5f + 0.3f * sin(age * 0.0003f);
+    g_oilTempC = 90.0f + 5.0f * sin(age * 0.0002f);
     g_canReady = true;
 }
 
@@ -170,14 +227,18 @@ static void updateDemo() {
 static void sendNotify() {
     if (!pNotifyChr || g_clients == 0) return;
 
-    char buf[48];
-    // Compact format: L{lambda}R{rpm}A{adv}M{map}
-    // M5 decodeGatewayCompact: L...R...A...M...
-    snprintf(buf, sizeof(buf), "L%.3fR%.0fA%.1fM%.0f",
-             (float)g_lambda,
-             (float)g_rpm,
-             (float)g_adv,
-             (float)g_map);
+    char buf[72];
+    // Base compact format (M5 decodeGatewayCompact parses L...R...A...M...)
+    int n = snprintf(buf, sizeof(buf), "L%.3fR%.0fA%.1fM%.0f",
+                     (float)g_lambda,
+                     (float)g_rpm,
+                     (float)g_adv,
+                     (float)g_map);
+#if OIL_SENSOR_ENABLED
+    // Append oil fields: P=pressure bar, O=oil temp °C
+    snprintf(buf + n, sizeof(buf) - n, "P%.1fO%.0f",
+             (float)g_oilBar, (float)g_oilTempC);
+#endif
 
     pNotifyChr->setValue((uint8_t*)buf, strlen(buf));
     pNotifyChr->notify();
@@ -197,6 +258,14 @@ void setup() {
         Serial.println("[!] CAN init failed — running in demo mode");
         g_demoMode = true;
     }
+
+#if OIL_SENSOR_ENABLED
+    // ADC: 12-bit, 11dB attenuation allows up to ~3.1V on GPIO34/35
+    analogReadResolution(12);
+    analogSetAttenuation(ADC_11db);
+    Serial.printf("[OIL] Hella sensor GPIO%d (pressure) GPIO%d (temp)\n",
+                  OIL_PRESSURE_PIN, OIL_TEMP_PIN);
+#endif
 
     // BLE
     NimBLEDevice::init(BLE_NAME);
@@ -238,6 +307,10 @@ void loop() {
             Serial.printf("[%6lums] CAN timeout\n", millis());
         }
     }
+
+#if OIL_SENSOR_ENABLED
+    pollOilSensor();
+#endif
 
     if (millis() - lastNotify >= NOTIFY_INTERVAL_MS) {
         lastNotify = millis();
