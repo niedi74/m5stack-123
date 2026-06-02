@@ -10,9 +10,11 @@ Echtzeit-Anzeige von Zündung, Drehzahl, Temperatur und Lambda für einen **VW T
 |---|---|
 | Fahrzeug | VW T2b, 2L Typ 4-Motor, Automatikgetriebe, luftgekühlt |
 | Anzeige | M5Stack Dial (StampS3 / ESP32-S3, GC9A01 240×240 rund) |
-| Zündung | 123\TUNE+ Albertronic BV, Firmware 1.4c |
+| Zuendung | 123\TUNE+ Albertronic BV, Firmware 1.4c |
 | Lambda | Bosch LSU 4.9 via Spartan Lambda 3 V2 |
 | Geschwindigkeit | Reed-Kontakt an Antriebswelle, 10 Impulse/Umdrehung |
+| Batterie | Leagend BM6 V2.0, MAC `3C:AB:72:80:06:6A` |
+| Gateway | ESP32 "Spartan3-Hub" im Motorraum, BLE Notify 250ms |
 
 ---
 
@@ -117,18 +119,38 @@ lib_deps =
 | Orangefarbener Drehring | Auswahl bewegen, in aktivem Tune +/- |
 | Mechanischer Button (`BtnA`) | Druck auf das Dial/Gehause; kurz = Aktion, lang = Kontextfunktion |
 
-| Aktion | Funktion |
+| Input | Funktion |
 |---|---|
-| Encoder-Knopf kurz drücken | Seiten `ADV`, `T/V`, `SETTINGS`, `TUNE` wechseln; in `SETTINGS` aktuellen Punkt ändern |
-| Encoder-Knopf lang drücken | In `SETTINGS` zur nächsten Seite wechseln; in `TUNE` ARM/Start/Exit |
-| Äußeren Drehring drehen | In `SETTINGS` den Auswahlpfeil bewegen; in aktivem `TUNE` +/- |
-| Display antippen | Im Fahrbetrieb standardmäßig deaktiviert; optional nur `ADV` / `T/V`, im Demo-Modus alle Seiten |
+| **Touch** | Immer: naechste Seite (alle Pages) |
+| **Button kurz** | Settings: Wert aendern. Sonst: nichts |
+| **Button lang (2s)** | Tune-Page: ARM / START / Exit |
+| **Drehen** | Settings: Auswahl. Tune: Steps +/- |
 | `SETTINGS` | Töne (ab Werk `OFF`), Touch-Navigation, Helligkeit und Display-Drehung einstellen |
 | `SETTINGS` -> `Demo mode` | Im Stand simulierte Live-Werte und Bedienung testen |
 | `SETTINGS` -> `Rotation` | Anzeige relativ zur Einbaulage um `0/90/180/270 deg` drehen; wird gespeichert |
-| **Hauptansicht** | Zündvoreilung (orange, oben) + RPM (weiß, unten) |
-| **Aux-Ansicht** | Temperatur (cyan, oben) + Spannung (gelb, unten) |
-| BLE-Status oben links | grün = verbunden, rot = Suche läuft |
+### Display-Seiten (Gateway-Modus)
+
+| # | Page | Inhalt |
+|---|---|---|
+| 1 | Main | ADV + MAP + LAMBDA + RPM (+ BAT/Speed-Bar oben) |
+| 2 | Lambda | Grosses Lambda fullscreen |
+| 3 | Aux | Spartan Sensor-Temp + 123 VOLT |
+| 4 | 123 TUNE+ | RPM, ADV, MAP, VOLT, TEMP, COIL als Liste |
+| 5 | Speed | Grosse km/h + BAT/Lambda/RPM |
+| 6 | BAT | Grosse BM6 Volt + Bewertung + Speed/Lambda/RPM |
+| 7 | Settings | Buzzer, Touch, Demo, Conn, Brightness, WiFi |
+| 8 | Tune | Zuendungs-Tuning (ARM/START/Steps) |
+
+Pages 4-6 nur im Gateway-Modus. Im Direkt-123-Modus uebersprungen.
+
+### Gateway BLE Payload Format
+
+```
+L<lambda>R<rpm>A<adv>M<map>V<bm6_volt>S<speed>I<123_volt>T<123_temp>C<coil>
+```
+
+| BLE-Status oben links | gruen = verbunden, rot = Suche laeuft |
+|---|---|
 
 Im Fahrbetrieb gilt: Wenn bei mehr als `650 RPM` noch kein Home-WLAN
 verbunden ist, schaltet die Firmware WLAN und Setup-AP still aus. Dadurch
