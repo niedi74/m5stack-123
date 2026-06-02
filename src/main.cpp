@@ -2472,20 +2472,10 @@ static void drawLambdaPage() {
 
 static void drawAux() {
     char buf[16];
-    if (g_connectionMode == CONN_SPARTAN_GATEWAY && g_speedValid) {
-        snprintf(buf, sizeof(buf), "%d", (int)(g_speedKmh + 0.5f));
-        drawHalf(sprTop, buf, "km/h  REED", TFT_CYAN, 44);
-    } else {
-        snprintf(buf, sizeof(buf), "%.0f", (float)g_tmp);
-        drawHalf(sprTop, buf, "TEMP  degC", TFT_CYAN, 44);
-    }
-    if (g_connectionMode == CONN_SPARTAN_GATEWAY && g_battValid) {
-        snprintf(buf, sizeof(buf), "%.2f", (float)g_battVolt);
-        drawHalf(sprBot, buf, "BAT   V", TFT_GREENYELLOW, 140);
-    } else {
-        snprintf(buf, sizeof(buf), "%.1f", (float)g_vlt);
-        drawHalf(sprBot, buf, "VOLT  V", TFT_YELLOW, 140);
-    }
+    snprintf(buf, sizeof(buf), "%.0f", (float)g_tmp);
+    drawHalf(sprTop, buf, "TEMP  degC", TFT_CYAN, 44);
+    snprintf(buf, sizeof(buf), "%.1f", (float)g_vlt);
+    drawHalf(sprBot, buf, "VOLT  V", TFT_YELLOW, 140);
 }
 
 static void drawSpeedPage() {
