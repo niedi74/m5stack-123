@@ -607,27 +607,15 @@ static void handleTouch() {
         g_touchDown = true;
         return;
     }
-    // 20ms Poll = schneller als ein kurzer Fingertipp (~50-80ms).
-    // Vorher 40ms — hat bei schnellen Taps ~50% verschluckt.
     static uint32_t lastPoll = 0;
-    if (millis() - lastPoll < 20) return;
+    if (millis() - lastPoll < 25) return;
     lastPoll = millis();
 
     bool down = readTouchPressed();
     if (down && !g_touchDown) {
         advancePage();
     }
-    // Cooldown nach Loslassen: 150ms ignorieren, verhindert
-    // Phantom-Doppeltrigger durch kapazitives Nachschwingen.
-    static uint32_t releaseMs = 0;
-    if (!down && g_touchDown) {
-        releaseMs = millis();
-    }
-    if (!down && millis() - releaseMs < 150) {
-        g_touchDown = true;  // noch im Cooldown, als "gehalten" betrachten
-    } else {
-        g_touchDown = down;
-    }
+    g_touchDown = down;
 }
 
 static void ensureLogHeader() {
@@ -2811,7 +2799,7 @@ static void handleButton() {
     if (btn == LOW && !longFired && millis() - pressTime >= holdMs) {
         longFired = true;
         if (isSettingsPage()) {
-            advancePage();
+            // Long-Press in Settings: nichts. Touch wechselt Page.
         } else if (g_page == PAGE_TUNE) {
             if (g_tuneActive) {
                 tuneZero();
@@ -2835,8 +2823,13 @@ static void handleButton() {
         }
     }
     if (btn == HIGH && lastBtn == LOW && !longFired) {
+        // Kurz-Klick: nur auf Settings/Tune wirken, NICHT Page-Wechsel.
+        // Page-Wechsel ist Touch-only.
         if (isSettingsPage()) activateSetting();
-        else advancePage();
+        else if (g_page == PAGE_TUNE) {
+            // Kurz-Klick auf Tune: z.B. zukuenftige Funktion
+        }
+        // Auf allen anderen Pages: Klick tut nichts (Touch wechselt).
     }
     lastBtn = btn;
 }
