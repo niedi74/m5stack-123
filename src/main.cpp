@@ -87,12 +87,16 @@ static volatile float    g_lambda = 0;
 static volatile bool     g_conn  = false;
 static volatile bool     g_lambdaValid = false;
 static volatile uint32_t g_rxCnt = 0;
-// Spartan-Hub Gateway-Daten (BM6 + Speed)
+// Spartan-Hub Gateway-Daten (BM6 + Speed + 123-Intern)
 static volatile float    g_battVolt = 0.0f;
 static volatile bool     g_battValid = false;
 static volatile float    g_speedKmh = 0.0f;
 static volatile bool     g_speedValid = false;
-enum UiPage : uint8_t { PAGE_MAIN, PAGE_LAMBDA, PAGE_AUX, PAGE_SPEED, PAGE_BAT, PAGE_SETTINGS, PAGE_SETTINGS2, PAGE_TUNE, PAGE_COUNT };
+static volatile float    g_gw123Volt = 0.0f;   // 123 interne Spannung via Gateway
+static volatile float    g_gw123Temp = 0.0f;   // 123 interne Temp via Gateway
+static volatile float    g_gw123Coil = 0.0f;   // 123 Zuendspulenstrom via Gateway
+static volatile bool     g_gw123Valid = false;
+enum UiPage : uint8_t { PAGE_MAIN, PAGE_LAMBDA, PAGE_AUX, PAGE_123, PAGE_SPEED, PAGE_BAT, PAGE_SETTINGS, PAGE_SETTINGS2, PAGE_TUNE, PAGE_COUNT };
 enum BeepKind : uint8_t { BEEP_ACTION, BEEP_BLE, BEEP_ERROR };
 enum ConnectionMode : uint8_t { CONN_DIRECT_123 = 0, CONN_SPARTAN_GATEWAY = 1 };
 
@@ -569,7 +573,7 @@ static void advancePage() {
     do {
         g_page = static_cast<UiPage>((static_cast<uint8_t>(g_page) + 1) % PAGE_COUNT);
     } while (g_connectionMode != CONN_SPARTAN_GATEWAY &&
-             (g_page == PAGE_SPEED || g_page == PAGE_BAT));
+             (g_page == PAGE_SPEED || g_page == PAGE_BAT || g_page == PAGE_123));
     if (isSettingsPage() && g_settingIndex >= settingCountForPage()) g_settingIndex = 0;
     if (oldPage == PAGE_TUNE && g_tuneArmed && !g_tuneActive) {
         g_tuneArmed = false;
@@ -1992,8 +1996,21 @@ static bool decodeGatewayCompact(const String& payload) {
                 if (v > 0.5f) { g_battVolt = v; g_battValid = true; }
             }
             if (posS > posM) {
-                g_speedKmh = payload.substring(posS + 1).toFloat();
+                int sEnd = payload.indexOf('I', posS + 1);
+                g_speedKmh = payload.substring(posS + 1, sEnd > posS ? sEnd : payload.length()).toFloat();
                 g_speedValid = true;
+            }
+            // 123-interne Werte: I<volt>T<temp>C<coil>
+            int posI = payload.indexOf('I', posM + 1);
+            if (posI > 0) {
+                int posT2 = payload.indexOf('T', posI + 1);
+                int posC = payload.indexOf('C', posT2 > 0 ? posT2 + 1 : posI + 1);
+                if (posT2 > posI && posC > posT2) {
+                    g_gw123Volt = payload.substring(posI + 1, posT2).toFloat();
+                    g_gw123Temp = payload.substring(posT2 + 1, posC).toFloat();
+                    g_gw123Coil = payload.substring(posC + 1).toFloat();
+                    g_gw123Valid = true;
+                }
             }
             g_rxCnt++;
             return true;
@@ -2566,6 +2583,81 @@ static void drawBatPage() {
     display.drawString(buf, 120, 218);
 }
 
+static void draw123Page() {
+    char buf[20];
+    display.fillScreen(TFT_BLACK);
+    display.setTextDatum(MC_DATUM);
+
+    display.setFont(&fonts::FreeSans12pt7b);
+    display.setTextColor(TFT_ORANGE);
+    display.drawString("123 TUNE+", 120, 30);
+
+    display.setFont(&fonts::FreeSans9pt7b);
+    int y = 60;
+
+    // RPM
+    display.setTextDatum(ML_DATUM);
+    display.setTextColor(TFT_DARKGREY);
+    display.drawString("RPM", 30, y);
+    display.setTextDatum(MR_DATUM);
+    display.setTextColor(TFT_WHITE);
+    snprintf(buf, sizeof(buf), "%d", (int)g_rpm);
+    display.drawString(buf, 210, y);
+
+    // ADV
+    y += 24;
+    display.setTextDatum(ML_DATUM);
+    display.setTextColor(TFT_DARKGREY);
+    display.drawString("ADV", 30, y);
+    display.setTextDatum(MR_DATUM);
+    display.setTextColor(TFT_ORANGE);
+    snprintf(buf, sizeof(buf), "%.1f deg", (float)g_adv);
+    display.drawString(buf, 210, y);
+
+    // MAP
+    y += 24;
+    display.setTextDatum(ML_DATUM);
+    display.setTextColor(TFT_DARKGREY);
+    display.drawString("MAP", 30, y);
+    display.setTextDatum(MR_DATUM);
+    display.setTextColor(TFT_SKYBLUE);
+    snprintf(buf, sizeof(buf), "%d kPa", (int)g_map);
+    display.drawString(buf, 210, y);
+
+    // 123 Volt
+    y += 24;
+    display.setTextDatum(ML_DATUM);
+    display.setTextColor(TFT_DARKGREY);
+    display.drawString("VOLT", 30, y);
+    display.setTextDatum(MR_DATUM);
+    display.setTextColor(TFT_YELLOW);
+    if (g_gw123Valid) snprintf(buf, sizeof(buf), "%.1f V", g_gw123Volt);
+    else snprintf(buf, sizeof(buf), "%.1f V", (float)g_vlt);
+    display.drawString(buf, 210, y);
+
+    // 123 Temp
+    y += 24;
+    display.setTextDatum(ML_DATUM);
+    display.setTextColor(TFT_DARKGREY);
+    display.drawString("TEMP", 30, y);
+    display.setTextDatum(MR_DATUM);
+    display.setTextColor(TFT_CYAN);
+    if (g_gw123Valid) snprintf(buf, sizeof(buf), "%d C", (int)g_gw123Temp);
+    else snprintf(buf, sizeof(buf), "%.0f C", (float)g_tmp);
+    display.drawString(buf, 210, y);
+
+    // Coil Current
+    y += 24;
+    display.setTextDatum(ML_DATUM);
+    display.setTextColor(TFT_DARKGREY);
+    display.drawString("COIL", 30, y);
+    display.setTextDatum(MR_DATUM);
+    display.setTextColor(TFT_MAGENTA);
+    if (g_gw123Valid) snprintf(buf, sizeof(buf), "%.1f A", g_gw123Coil);
+    else snprintf(buf, sizeof(buf), "%.1f A", (float)g_cur);
+    display.drawString(buf, 210, y);
+}
+
 static void drawSettings() {
     const bool systemPage = g_page == PAGE_SETTINGS2;
     const char* labelsMain[] = { "Buzzer", "Button tone", "BLE tone", "Error tone", "Touch nav", "Demo mode", "Conn" };
@@ -2915,7 +3007,7 @@ void loop() {
         appendLiveCsv();
     }
 
-    if (g_page != PAGE_LAMBDA && g_page != PAGE_SPEED && g_page != PAGE_BAT) drawStatus();
+    if (g_page != PAGE_LAMBDA && g_page != PAGE_SPEED && g_page != PAGE_BAT && g_page != PAGE_123) drawStatus();
     if (!g_demoMode && g_rxCnt == 0 && (g_page == PAGE_MAIN || g_page == PAGE_AUX)) {
         drawLog();
     } else if (g_page == PAGE_MAIN) {
@@ -2924,6 +3016,8 @@ void loop() {
         drawLambdaPage();
     } else if (g_page == PAGE_AUX) {
         drawAux();
+    } else if (g_page == PAGE_123) {
+        draw123Page();
     } else if (g_page == PAGE_SPEED) {
         drawSpeedPage();
     } else if (g_page == PAGE_BAT) {
