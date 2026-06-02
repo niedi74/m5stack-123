@@ -607,15 +607,27 @@ static void handleTouch() {
         g_touchDown = true;
         return;
     }
+    // 20ms Poll = schneller als ein kurzer Fingertipp (~50-80ms).
+    // Vorher 40ms — hat bei schnellen Taps ~50% verschluckt.
     static uint32_t lastPoll = 0;
-    if (millis() - lastPoll < 40) return;
+    if (millis() - lastPoll < 20) return;
     lastPoll = millis();
 
     bool down = readTouchPressed();
     if (down && !g_touchDown) {
         advancePage();
     }
-    g_touchDown = down;
+    // Cooldown nach Loslassen: 150ms ignorieren, verhindert
+    // Phantom-Doppeltrigger durch kapazitives Nachschwingen.
+    static uint32_t releaseMs = 0;
+    if (!down && g_touchDown) {
+        releaseMs = millis();
+    }
+    if (!down && millis() - releaseMs < 150) {
+        g_touchDown = true;  // noch im Cooldown, als "gehalten" betrachten
+    } else {
+        g_touchDown = down;
+    }
 }
 
 static void ensureLogHeader() {
@@ -2816,12 +2828,10 @@ static void handleButton() {
             } else if (tuneSendToggle()) {
                 g_tuneArmedAt = 0;
             }
-        } else if (g_demoMode) {
-            pushLog("DEMO: kein Read");
         } else {
-            g_readRequested = true;
-            pushLog("Read angefragt");
-            beep(BEEP_ACTION);
+            // Long-Press auf Main/Aux/Lambda/Speed/Bat: nichts tun.
+            // Verhindert versehentliche Read-Requests bei langsamem Loslassen.
+            // Read-Dump per Serial (!read) oder Web-GUI verfuegbar.
         }
     }
     if (btn == HIGH && lastBtn == LOW && !longFired) {
