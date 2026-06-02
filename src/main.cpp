@@ -87,6 +87,11 @@ static volatile float    g_lambda = 0;
 static volatile bool     g_conn  = false;
 static volatile bool     g_lambdaValid = false;
 static volatile uint32_t g_rxCnt = 0;
+// Spartan-Hub Gateway-Daten (BM6 + Speed)
+static volatile float    g_battVolt = 0.0f;
+static volatile bool     g_battValid = false;
+static volatile float    g_speedKmh = 0.0f;
+static volatile bool     g_speedValid = false;
 enum UiPage : uint8_t { PAGE_MAIN, PAGE_LAMBDA, PAGE_AUX, PAGE_SETTINGS, PAGE_SETTINGS2, PAGE_TUNE, PAGE_COUNT };
 enum BeepKind : uint8_t { BEEP_ACTION, BEEP_BLE, BEEP_ERROR };
 enum ConnectionMode : uint8_t { CONN_DIRECT_123 = 0, CONN_SPARTAN_GATEWAY = 1 };
@@ -877,6 +882,10 @@ static void handleState() {
     json += "\"lambda_valid\":" + String(g_lambdaValid ? "true" : "false") + ",";
     json += "\"temp\":" + String((int)g_tmp) + ",";
     json += "\"volt\":" + String((float)g_vlt, 1) + ",";
+    json += "\"batt_volt\":" + String((float)g_battVolt, 2) + ",";
+    json += "\"batt_valid\":" + String(g_battValid ? "true" : "false") + ",";
+    json += "\"speed_kmh\":" + String((float)g_speedKmh, 1) + ",";
+    json += "\"speed_valid\":" + String(g_speedValid ? "true" : "false") + ",";
     json += "\"tune_armed\":" + String(g_tuneArmed ? "true" : "false") + ",";
     json += "\"tune_active\":" + String(g_tuneActive ? "true" : "false") + ",";
     json += "\"tune_steps\":" + String(g_tuneSteps) + ",";
@@ -1955,6 +1964,7 @@ static bool jsonNumber(const String& json, const char* key, float& out) {
 }
 
 static bool decodeGatewayCompact(const String& payload) {
+    // Format: L<lam>R<rpm>A<adv>M<map>[V<volt>][S<kmh>]
     if (payload.startsWith("L") && payload.indexOf('R') > 1) {
         int posR = payload.indexOf('R');
         int posA = payload.indexOf('A', posR + 1);
@@ -1964,7 +1974,23 @@ static bool decodeGatewayCompact(const String& payload) {
             g_lambdaValid = true;
             g_rpm = payload.substring(posR + 1, posA).toFloat();
             g_adv = payload.substring(posA + 1, posM).toFloat();
-            g_map = payload.substring(posM + 1).toFloat();
+
+            // Optionale Felder nach M: V<volt>, S<kmh>
+            int posV = payload.indexOf('V', posM + 1);
+            int posS = payload.indexOf('S', posM + 1);
+            // MAP endet am naechsten Buchstaben (V oder S) oder String-Ende
+            int mapEnd = posV > posM ? posV : (posS > posM ? posS : payload.length());
+            g_map = payload.substring(posM + 1, mapEnd).toFloat();
+
+            if (posV > posM) {
+                int vEnd = posS > posV ? posS : payload.length();
+                float v = payload.substring(posV + 1, vEnd).toFloat();
+                if (v > 0.5f) { g_battVolt = v; g_battValid = true; }
+            }
+            if (posS > posM) {
+                g_speedKmh = payload.substring(posS + 1).toFloat();
+                g_speedValid = true;
+            }
             g_rxCnt++;
             return true;
         }
@@ -2328,12 +2354,36 @@ static void drawMain() {
     display.fillRect(0, 44, 240, 196, TFT_BLACK);
     display.setTextDatum(MC_DATUM);
 
+    // Gateway-Modus: BAT + SPEED kompakt oben
+    int yOffset = 0;
+    if (g_connectionMode == CONN_SPARTAN_GATEWAY && (g_battValid || g_speedValid)) {
+        display.setFont(&fonts::Font2);
+        if (g_battValid) {
+            uint32_t bc = TFT_GREENYELLOW;
+            if (g_battVolt < 11.8f) bc = TFT_RED;
+            else if (g_battVolt < 12.4f) bc = TFT_YELLOW;
+            else if (g_battVolt > 14.6f) bc = TFT_RED;
+            display.setTextColor(bc);
+            snprintf(buf, sizeof(buf), "%.1fV", (float)g_battVolt);
+            display.setTextDatum(ML_DATUM);
+            display.drawString(buf, 40, 52);
+        }
+        if (g_speedValid) {
+            display.setTextColor((uint32_t)TFT_CYAN);
+            snprintf(buf, sizeof(buf), "%dkm/h", (int)(g_speedKmh + 0.5f));
+            display.setTextDatum(MR_DATUM);
+            display.drawString(buf, 200, 52);
+        }
+        display.setTextDatum(MC_DATUM);
+        yOffset = 10;
+    }
+
     snprintf(buf, sizeof(buf), "%.1f", (float)g_adv);
     display.setFont(&fonts::Font4);
     display.setTextColor(g_tuneSteps > 0 ? (uint32_t)TFT_RED :
                          g_tuneSteps < 0 ? (uint32_t)TFT_SKYBLUE :
                                            (uint32_t)TFT_ORANGE);
-    display.drawString(buf, 120, 72);
+    display.drawString(buf, 120, 72 + yOffset);
     display.setFont(&fonts::FreeSans9pt7b);
     display.setTextColor(TFT_DARKGREY);
     if (g_tuneActive) {
@@ -2342,27 +2392,27 @@ static void drawMain() {
         display.setTextColor(g_tuneSteps > 0 ? (uint32_t)TFT_RED :
                              g_tuneSteps < 0 ? (uint32_t)TFT_SKYBLUE :
                                                (uint32_t)TFT_ORANGE);
-        display.drawString(tuneBuf, 120, 102);
+        display.drawString(tuneBuf, 120, 102 + yOffset);
         display.setFont(&fonts::FreeSans9pt7b);
         display.setTextColor(TFT_DARKGREY);
-        display.drawString("ADVANCE  deg", 120, 117);
+        display.drawString("ADVANCE  deg", 120, 117 + yOffset);
     } else {
-        display.drawString("ADVANCE  deg", 120, 102);
+        display.drawString("ADVANCE  deg", 120, 102 + yOffset);
     }
 
     display.setFont(&fonts::Font2);
     display.setTextColor(TFT_SKYBLUE);
     snprintf(buf, sizeof(buf), "%.2f", mapBar());
-    display.drawString(buf, 58, g_tuneActive ? 148 : 140);
+    display.drawString(buf, 58, (g_tuneActive ? 148 : 140) + yOffset);
     display.setTextColor(lambdaColor());
     if (g_lambdaValid) snprintf(buf, sizeof(buf), "%.2f", (float)g_lambda);
     else snprintf(buf, sizeof(buf), "--");
     display.setFont(&fonts::Font4);
-    display.drawString(buf, 174, g_tuneActive ? 148 : 140);
+    display.drawString(buf, 174, (g_tuneActive ? 148 : 140) + yOffset);
     display.setFont(&fonts::FreeSans9pt7b);
     display.setTextColor(TFT_DARKGREY);
-    display.drawString("MAP bar", 58, g_tuneActive ? 170 : 162);
-    display.drawString("LAMBDA", 174, g_tuneActive ? 170 : 162);
+    display.drawString("MAP bar", 58, (g_tuneActive ? 170 : 162) + yOffset);
+    display.drawString("LAMBDA", 174, (g_tuneActive ? 170 : 162) + yOffset);
 
     snprintf(buf, sizeof(buf), "%d", (int)g_rpm);
     display.setFont(&fonts::Font6);
@@ -2418,10 +2468,20 @@ static void drawLambdaPage() {
 
 static void drawAux() {
     char buf[16];
-    snprintf(buf, sizeof(buf), "%.0f", (float)g_tmp);
-    drawHalf(sprTop, buf, "TEMP  degC", TFT_CYAN, 44);
-    snprintf(buf, sizeof(buf), "%.1f", (float)g_vlt);
-    drawHalf(sprBot, buf, "VOLT  V", TFT_YELLOW, 140);
+    if (g_connectionMode == CONN_SPARTAN_GATEWAY && g_speedValid) {
+        snprintf(buf, sizeof(buf), "%d", (int)(g_speedKmh + 0.5f));
+        drawHalf(sprTop, buf, "km/h  REED", TFT_CYAN, 44);
+    } else {
+        snprintf(buf, sizeof(buf), "%.0f", (float)g_tmp);
+        drawHalf(sprTop, buf, "TEMP  degC", TFT_CYAN, 44);
+    }
+    if (g_connectionMode == CONN_SPARTAN_GATEWAY && g_battValid) {
+        snprintf(buf, sizeof(buf), "%.2f", (float)g_battVolt);
+        drawHalf(sprBot, buf, "BAT   V", TFT_GREENYELLOW, 140);
+    } else {
+        snprintf(buf, sizeof(buf), "%.1f", (float)g_vlt);
+        drawHalf(sprBot, buf, "VOLT  V", TFT_YELLOW, 140);
+    }
 }
 
 static void drawSettings() {
