@@ -92,7 +92,7 @@ static volatile float    g_battVolt = 0.0f;
 static volatile bool     g_battValid = false;
 static volatile float    g_speedKmh = 0.0f;
 static volatile bool     g_speedValid = false;
-enum UiPage : uint8_t { PAGE_MAIN, PAGE_LAMBDA, PAGE_AUX, PAGE_SETTINGS, PAGE_SETTINGS2, PAGE_TUNE, PAGE_COUNT };
+enum UiPage : uint8_t { PAGE_MAIN, PAGE_LAMBDA, PAGE_AUX, PAGE_SPEED, PAGE_BAT, PAGE_SETTINGS, PAGE_SETTINGS2, PAGE_TUNE, PAGE_COUNT };
 enum BeepKind : uint8_t { BEEP_ACTION, BEEP_BLE, BEEP_ERROR };
 enum ConnectionMode : uint8_t { CONN_DIRECT_123 = 0, CONN_SPARTAN_GATEWAY = 1 };
 
@@ -565,7 +565,11 @@ static void advancePage() {
     }
     g_encoderAccum = 0;
     UiPage oldPage = g_page;
-    g_page = static_cast<UiPage>((static_cast<uint8_t>(g_page) + 1) % PAGE_COUNT);
+    // Naechste Page, Gateway-only Pages (SPEED, BAT) ueberspringen im Direct-Modus
+    do {
+        g_page = static_cast<UiPage>((static_cast<uint8_t>(g_page) + 1) % PAGE_COUNT);
+    } while (g_connectionMode != CONN_SPARTAN_GATEWAY &&
+             (g_page == PAGE_SPEED || g_page == PAGE_BAT));
     if (isSettingsPage() && g_settingIndex >= settingCountForPage()) g_settingIndex = 0;
     if (oldPage == PAGE_TUNE && g_tuneArmed && !g_tuneActive) {
         g_tuneArmed = false;
@@ -2484,6 +2488,94 @@ static void drawAux() {
     }
 }
 
+static void drawSpeedPage() {
+    char buf[20];
+    display.fillScreen(TFT_BLACK);
+    display.setTextDatum(MC_DATUM);
+
+    display.setFont(&fonts::FreeSans12pt7b);
+    display.setTextColor(TFT_DARKGREY);
+    display.drawString("SPEED", 120, 34);
+
+    display.setTextColor(TFT_CYAN);
+    display.setFont(&fonts::FreeSans24pt7b);
+    if (g_speedValid) snprintf(buf, sizeof(buf), "%d", (int)(g_speedKmh + 0.5f));
+    else snprintf(buf, sizeof(buf), "--");
+    display.drawString(buf, 120, 88);
+
+    display.setFont(&fonts::FreeSans9pt7b);
+    display.setTextColor(TFT_DARKGREY);
+    display.drawString("km/h", 120, 130);
+
+    display.setFont(&fonts::Font2);
+    display.setTextColor(TFT_SKYBLUE);
+    if (g_battValid) {
+        snprintf(buf, sizeof(buf), "BAT %.1fV", (float)g_battVolt);
+        display.drawString(buf, 65, 194);
+    }
+    display.setTextColor(lambdaColor());
+    if (g_lambdaValid) snprintf(buf, sizeof(buf), "L %.2f", (float)g_lambda);
+    else snprintf(buf, sizeof(buf), "L --");
+    display.drawString(buf, 175, 194);
+
+    display.setFont(&fonts::FreeSans9pt7b);
+    display.setTextColor(TFT_WHITE);
+    snprintf(buf, sizeof(buf), "RPM %d", (int)g_rpm);
+    display.drawString(buf, 120, 218);
+}
+
+static void drawBatPage() {
+    char buf[20];
+    display.fillScreen(TFT_BLACK);
+    display.setTextDatum(MC_DATUM);
+
+    display.setFont(&fonts::FreeSans12pt7b);
+    display.setTextColor(TFT_DARKGREY);
+    display.drawString("BATTERIE", 120, 34);
+
+    uint32_t bc = TFT_GREENYELLOW;
+    if (g_battVolt < 11.8f) bc = TFT_RED;
+    else if (g_battVolt < 12.4f) bc = TFT_YELLOW;
+    else if (g_battVolt > 14.6f) bc = TFT_RED;
+    display.setTextColor(bc);
+    display.setFont(&fonts::FreeSans24pt7b);
+    if (g_battValid) snprintf(buf, sizeof(buf), "%.2f", (float)g_battVolt);
+    else snprintf(buf, sizeof(buf), "--");
+    display.drawString(buf, 120, 88);
+
+    display.setFont(&fonts::FreeSans9pt7b);
+    display.setTextColor(TFT_DARKGREY);
+    display.drawString("Volt", 120, 130);
+
+    // Spannungsbewertung
+    const char* rating = "--";
+    if (g_battValid) {
+        if (g_battVolt > 14.6f) rating = "Ueberladung!";
+        else if (g_battVolt > 13.8f) rating = "Laden";
+        else if (g_battVolt > 12.4f) rating = "Voll";
+        else if (g_battVolt > 11.8f) rating = "OK";
+        else rating = "Schwach!";
+    }
+    display.setTextColor(bc);
+    display.drawString(rating, 120, 154);
+
+    display.setFont(&fonts::Font2);
+    display.setTextColor(TFT_CYAN);
+    if (g_speedValid) {
+        snprintf(buf, sizeof(buf), "%d km/h", (int)(g_speedKmh + 0.5f));
+        display.drawString(buf, 65, 194);
+    }
+    display.setTextColor(lambdaColor());
+    if (g_lambdaValid) snprintf(buf, sizeof(buf), "L %.2f", (float)g_lambda);
+    else snprintf(buf, sizeof(buf), "L --");
+    display.drawString(buf, 175, 194);
+
+    display.setFont(&fonts::FreeSans9pt7b);
+    display.setTextColor(TFT_WHITE);
+    snprintf(buf, sizeof(buf), "RPM %d", (int)g_rpm);
+    display.drawString(buf, 120, 218);
+}
+
 static void drawSettings() {
     const bool systemPage = g_page == PAGE_SETTINGS2;
     const char* labelsMain[] = { "Buzzer", "Button tone", "BLE tone", "Error tone", "Touch nav", "Demo mode", "Conn" };
@@ -2830,7 +2922,7 @@ void loop() {
         appendLiveCsv();
     }
 
-    if (g_page != PAGE_LAMBDA) drawStatus();
+    if (g_page != PAGE_LAMBDA && g_page != PAGE_SPEED && g_page != PAGE_BAT) drawStatus();
     if (!g_demoMode && g_rxCnt == 0 && (g_page == PAGE_MAIN || g_page == PAGE_AUX)) {
         drawLog();
     } else if (g_page == PAGE_MAIN) {
@@ -2839,6 +2931,10 @@ void loop() {
         drawLambdaPage();
     } else if (g_page == PAGE_AUX) {
         drawAux();
+    } else if (g_page == PAGE_SPEED) {
+        drawSpeedPage();
+    } else if (g_page == PAGE_BAT) {
+        drawBatPage();
     } else if (isSettingsPage()) {
         drawSettings();
     } else {
