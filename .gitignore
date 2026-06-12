@@ -9,3 +9,6 @@
 
 # Lokale Port-Overrides (nicht committen, lokal anpassen)
 platformio.local.ini
+
+# Lokale WLAN-Zugangsdaten
+src/wifi_secret.h
