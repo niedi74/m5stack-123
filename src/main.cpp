@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <NimBLEDevice.h>
 #include <WiFi.h>
+#include <HTTPClient.h>
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <SPIFFS.h>
@@ -150,6 +151,13 @@ static constexpr const char* kSpartanApSsid = "Spartan3-Setup";
 static constexpr const char* kSpartanApPassword = "lambda123";
 static constexpr const char* kSpartanApM5Ip = "192.168.4.2";
 static constexpr const char* kSpartanApGateway = "192.168.4.1";
+static constexpr const char* kHubHomeHost = "192.168.0.87";
+static constexpr uint32_t kHubPollMs = 300;
+static constexpr uint32_t kHubTimeoutMs = 1200;
+static constexpr uint32_t kHubFreshMs = 5000;
+static volatile bool     g_hubWifiOk = false;
+static uint32_t          g_hubLastOkMs = 0;
+static uint32_t          g_hubPollCnt = 0;
 static uint8_t g_scanPauseIndex = 0;
 static uint32_t g_nextScanAt = 0;
 
@@ -483,8 +491,8 @@ static uint8_t settingCountForPage() {
 }
 
 static void stopBeep() {
-    ledcWriteTone(kBuzzerChannel, 0);
-    ledcWrite(kBuzzerChannel, 0);
+    ledcWriteTone(BUZZER_PIN, 0);
+    ledcWrite(BUZZER_PIN, 0);
     g_beepUntil = 0;
 }
 
@@ -497,7 +505,7 @@ static void beep(BeepKind kind) {
 
     uint16_t freq = kind == BEEP_ERROR ? 1800 : (kind == BEEP_BLE ? 5200 : 4200);
     uint16_t duration = kind == BEEP_ERROR ? 160 : 45;
-    ledcWriteTone(kBuzzerChannel, freq);
+    ledcWriteTone(BUZZER_PIN, freq);
     g_beepUntil = millis() + duration;
 }
 
@@ -745,12 +753,17 @@ static bool startSetupAp(bool keepSta = false);
 static void stopSetupAp(bool keepStaMode = true);
 static void setWifiHomeApEnabled(bool enabled);
 static bool isSpartanApWifiPreset();
+static bool hubWifiPreferred();
+static bool hubDataFresh();
+static bool dataLinkOk();
 
 static void handleRoot() {
     String ip = wifiIpLabel();
     String mode = wifiModeLabel();
     String timeText = localTimestamp();
-    String liveText = g_demoMode ? "DEMO" : (g_conn ? "BLE OK" : "Suche...");
+    String liveText = g_demoMode ? "DEMO" :
+                      (hubWifiPreferred() && hubDataFresh() ? "WiFi OK" :
+                       (g_conn ? "BLE OK" : "Suche..."));
     String ignitionText = g_demoMode ? "SIM TEST" : ("IGN #" + String((unsigned long)g_rxCnt));
     String tuneTitle = g_demoMode ? "DEMO TUNE" : "LIVE TUNE";
     String tuneState = g_tuneActive ? (g_demoMode ? "SIM LIVE" : "LIVE") :
@@ -866,7 +879,7 @@ static void handleRoot() {
     html += "tunehelp.textContent=d.tune_active?'Rotate on device +/-; hold 2s to EXIT':(d.tune_armed?'Hold on device 2s to START':'Hold on device 2s to ARM');";
     html += "tunestep.textContent=(d.tune_steps>=0?'+':'')+d.tune_steps;tunestep.className='tunestep '+c(d.tune_steps);tunemetric.textContent='ADV '+Number(d.adv).toFixed(1)+' deg | RPM '+d.rpm;}";
     html += "async function upd(){try{let r=await fetch('/state',{cache:'no-store'});let d=await r.json();";
-    html += "ble.textContent=d.demo?'DEMO':(d.ble?'BLE OK':'Suche...');ble.style.color=d.demo?'#00d7db':(d.ble?'#1ec85a':'#e33');";
+    html += "ble.textContent=d.demo?'DEMO':(d.hub_wifi?'WiFi OK':(d.ble?'BLE OK':'Suche...'));ble.style.color=d.demo?'#00d7db':((d.hub_wifi||d.ble)?'#1ec85a':'#e33');";
     html += "ble2.textContent=ble.textContent;ble2.style.color=ble.style.color;ble3.textContent=ble.textContent;ble3.style.color=ble.style.color;ble4.textContent=ble.textContent;ble4.style.color=ble.style.color;ble5.textContent=ble.textContent;ble5.style.color=ble.style.color;";
     html += "ign.textContent=d.demo?'SIM TEST':('IGN #'+d.rx);ign2.textContent=ign.textContent;ign3.textContent=ign.textContent;ign4.textContent=ign.textContent;ign5.textContent=ign.textContent;paint(d);}catch(e){}}";
     html += "upd();setInterval(upd,2000);</script>";
@@ -879,6 +892,8 @@ static void handleState() {
     json.reserve(420);
     json += "{";
     json += "\"ble\":" + String(g_conn ? "true" : "false") + ",";
+    json += "\"hub_wifi\":" + String(g_hubWifiOk ? "true" : "false") + ",";
+    json += "\"data_link\":" + String(dataLinkOk() ? "true" : "false") + ",";
     json += "\"demo\":" + String(g_demoMode ? "true" : "false") + ",";
     json += "\"page\":\"" + String(pageName()) + "\",";
     json += "\"rx\":" + String((unsigned long)g_rxCnt) + ",";
@@ -953,6 +968,141 @@ static bool isSpartanApWifiPreset() {
     return prefs.getString("ssid", "") == kSpartanApSsid &&
            prefs.getBool("static", false) &&
            prefs.getString("ip", "") == kSpartanApM5Ip;
+}
+
+static bool isOnBusWifi() {
+    return WiFi.status() == WL_CONNECTED && WiFi.SSID() == kSpartanApSsid;
+}
+
+static String hubPollHost() {
+    if (isOnBusWifi()) return kSpartanApGateway;
+    String homeSsid = prefs.getString("home_ssid", "");
+    if (homeSsid.length() > 0 && WiFi.SSID() == homeSsid) return kHubHomeHost;
+    IPAddress gw = WiFi.gatewayIP();
+    if (gw[0] != 0) return gw.toString();
+    return kHubHomeHost;
+}
+
+static bool gatewayUsesWifiHub() {
+    return g_connectionMode == CONN_SPARTAN_GATEWAY && !g_demoMode;
+}
+
+static bool hubWifiPreferred() {
+    return gatewayUsesWifiHub() && WiFi.status() == WL_CONNECTED;
+}
+
+static bool hubDataFresh() {
+    return g_hubLastOkMs != 0 && (millis() - g_hubLastOkMs) < kHubFreshMs;
+}
+
+static bool dataLinkOk() {
+    if (hubWifiPreferred() && hubDataFresh()) return true;
+    return g_conn;
+}
+
+static bool jsonNumber(const String& json, const char* key, float& out);
+static bool decodeGatewayCompact(const String& payload);
+static void startScan();
+
+static bool jsonExtractBool(const String& json, const char* key, bool* out) {
+    String needle = String("\"") + key + "\":";
+    int pos = json.indexOf(needle);
+    if (pos < 0) return false;
+    pos += needle.length();
+    while (pos < (int)json.length() && json[pos] == ' ') pos++;
+    if (json.startsWith("true", pos)) { *out = true; return true; }
+    if (json.startsWith("false", pos)) { *out = false; return true; }
+    return false;
+}
+
+static bool parseHubStatusJson(const String& json) {
+    if (decodeGatewayCompact(json)) return true;
+
+    bool valid = false;
+    const bool hasValid = jsonExtractBool(json, "valid", &valid);
+
+    float value = 0;
+    if (jsonNumber(json, "lambda", value)) {
+        g_lambda = value;
+        g_lambdaValid = value > 0.001f && (!hasValid || valid);
+    }
+    if (jsonNumber(json, "rpm", value)) g_rpm = value;
+    if (jsonNumber(json, "advance", value)) g_adv = value;
+    if (jsonNumber(json, "map", value)) g_map = value;
+    if (jsonNumber(json, "temperature", value)) g_tmp = value;
+    else if (jsonNumber(json, "temp", value)) g_tmp = value;
+
+    if (jsonNumber(json, "bm6_voltage", value) && value > 0.5f) {
+        g_battVolt = value;
+        g_battValid = true;
+    } else if (jsonNumber(json, "volt", value) && value > 0.5f) {
+        g_battVolt = value;
+        g_battValid = true;
+    }
+    if (jsonNumber(json, "speed_kmh", value) && value >= 0.0f) {
+        g_speedKmh = value;
+        g_speedValid = true;
+    }
+    if (jsonNumber(json, "123_volt", value)) g_gw123Volt = value;
+    if (jsonNumber(json, "123_temp", value)) g_gw123Temp = value;
+    if (jsonNumber(json, "123_coil", value)) g_gw123Coil = value;
+    if (g_gw123Volt > 0.1f || g_gw123Temp > 0.1f) g_gw123Valid = true;
+
+    g_rxCnt++;
+    return true;
+}
+
+static void suspendBleForHubWifi() {
+    doConnect = false;
+    g_conn = false;
+    pNusRx = nullptr;
+    pGatewayCmd = nullptr;
+    NimBLEDevice::getScan()->stop();
+    if (pClient && pClient->isConnected()) {
+        pClient->disconnect();
+    }
+}
+
+static void hubWifiPollTick() {
+    if (!gatewayUsesWifiHub()) return;
+    if (!hubWifiPreferred()) {
+        if (g_hubWifiOk) {
+            g_hubWifiOk = false;
+            g_hubLastOkMs = 0;
+        }
+        return;
+    }
+
+    if (g_conn || doConnect) suspendBleForHubWifi();
+
+    static uint32_t nextPollMs = 0;
+    const uint32_t now = millis();
+    if (now < nextPollMs) return;
+    nextPollMs = now + kHubPollMs;
+
+    HTTPClient http;
+    const String url = String("http://") + hubPollHost() + "/api/status";
+    http.setTimeout(kHubTimeoutMs);
+    if (!http.begin(url)) return;
+    http.addHeader("X-Device", "m5-dial");
+    const int code = http.GET();
+    if (code == HTTP_CODE_OK) {
+        const String body = http.getString();
+        if (body.length() > 10 && parseHubStatusJson(body)) {
+            g_hubWifiOk = true;
+            g_hubLastOkMs = now;
+            static bool announced = false;
+            if (!announced) {
+                announced = true;
+                pushLog("Hub WiFi OK");
+            }
+        }
+    } else {
+        static bool announced = false;
+        if (announced) announced = false;
+    }
+    http.end();
+    g_hubPollCnt++;
 }
 
 static void backupCurrentWifiPresetIfNeeded() {
@@ -1891,7 +2041,7 @@ class ClientCB : public NimBLEClientCallbacks {
         pGatewayCmd = nullptr;
         pushLog("Disc reason=%d", reason);
         beep(BEEP_ERROR);
-        if (!g_demoMode) startScan();
+        if (!g_demoMode && !gatewayUsesWifiHub()) startScan();
     }
     bool onConnParamsUpdateRequest(NimBLEClient*, const ble_gap_upd_params* p) override {
         pushLog("ParaReq %u-%u L%u T%u",
@@ -1924,6 +2074,7 @@ class ScanCB : public NimBLEScanCallbacks {
         }
     }
     void onScanEnd(const NimBLEScanResults&, int reason) override {
+        if (gatewayUsesWifiHub()) return;
         if ((g_demoMode && g_connectionMode == CONN_DIRECT_123) || g_conn || doConnect) return;
         pushLog("Scan Ende r=%d", reason);
         scheduleScanRetry();
@@ -1934,6 +2085,7 @@ static ClientCB clientCB;
 static ScanCB   scanCB;
 
 static void startScan() {
+    if (gatewayUsesWifiHub()) return;
     if ((g_demoMode && g_connectionMode == CONN_DIRECT_123) || g_conn || doConnect) return;
     g_nextScanAt = 0;
     pushLog("Scan 10s...");
@@ -1949,6 +2101,7 @@ static void startScan() {
 }
 
 static void serviceScanRetry() {
+    if (gatewayUsesWifiHub()) return;
     if ((g_demoMode && g_connectionMode == CONN_DIRECT_123) || g_conn || doConnect || g_nextScanAt == 0) return;
     if (static_cast<int32_t>(millis() - g_nextScanAt) >= 0) {
         startScan();
@@ -2314,10 +2467,17 @@ static void drawStatus() {
     display.fillRect(0, 0, 240, 44, TFT_BLACK);
     display.setFont(&fonts::FreeSans9pt7b);
 
+    const bool wifiLink = hubWifiPreferred() && hubDataFresh();
+    const bool linkOk = dataLinkOk();
+    const char* topStatus;
+    if (g_demoMode) topStatus = "DEMO";
+    else if (linkOk) topStatus = wifiLink ? "WiFi OK" : "BLE OK";
+    else if (gatewayUsesWifiHub()) topStatus = hubWifiPreferred() ? "Hub..." : "WiFi...";
+    else topStatus = "Suche...";
     display.setTextDatum(ML_DATUM);
     display.setTextColor(g_demoMode ? (uint32_t)TFT_CYAN :
-                         (g_conn ? (uint32_t)TFT_GREEN : (uint32_t)TFT_RED));
-    display.drawString(g_demoMode ? "DEMO" : (g_conn ? "BLE OK" : "Suche..."), 66, 20);
+                         (linkOk ? (uint32_t)TFT_GREEN : (uint32_t)TFT_RED));
+    display.drawString(topStatus, 66, 20);
 
     display.setTextColor(g_demoMode ? (uint32_t)TFT_CYAN : (uint32_t)0x404040);
     char buf[16];
@@ -2939,8 +3099,7 @@ void setup() {
     pinMode(ENC_A_PIN, INPUT_PULLUP);
     pinMode(ENC_B_PIN, INPUT_PULLUP);
     pinMode(TOUCH_INT_PIN, INPUT_PULLUP);
-    ledcSetup(kBuzzerChannel, 4000, 8);
-    ledcAttachPin(BUZZER_PIN, kBuzzerChannel);
+    ledcAttach(BUZZER_PIN, 4000, 8);
     stopBeep();
 
     pushLog("Start...");
@@ -2953,13 +3112,18 @@ void setup() {
     NimBLEDevice::init("M5Dial-NUS");
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
     NimBLEDevice::setMTU(23);
-    startScan();
+    if (gatewayUsesWifiHub()) {
+        pushLog("GW WiFi poll");
+    } else {
+        startScan();
+    }
 }
 
 void loop() {
     pollSerialCommands();
     serviceDemoMode();
     maintainWifi();
+    hubWifiPollTick();
     serviceBuzzer();
     serviceScanRetry();
     handleEncoder();
@@ -2974,7 +3138,7 @@ void loop() {
         beep(BEEP_ERROR);
     }
 
-    if ((g_connectionMode == CONN_SPARTAN_GATEWAY || !g_demoMode) && doConnect) {
+    if (!g_demoMode && doConnect && !gatewayUsesWifiHub()) {
         doConnect = false;
         connectBLE();
     }
@@ -2986,22 +3150,23 @@ void loop() {
 
     // The original 123\TUNE+ Android app pings BLE devices every 1650 ms.
     static uint32_t lastPing = 0;
-    if (!g_demoMode && g_conn && millis() - lastPing >= 1650) {
+    if (!g_demoMode && g_conn && !hubWifiPreferred() && millis() - lastPing >= 1650) {
         lastPing = millis();
         sendRaytacPing();
     }
 
     // Heartbeat: jede Sekunde Status loggen wenn verbunden aber keine Daten
     static uint32_t lastHb = 0;
-    if (g_conn && g_rxCnt == 0 && millis() - lastHb >= 1000) {
+    if (dataLinkOk() && g_rxCnt == 0 && millis() - lastHb >= 1000) {
         lastHb = millis();
-        Serial.printf("[%6lums] HB conn=%d rx=%lu\n",
-                      millis(), pClient && pClient->isConnected() ? 1 : 0,
+        Serial.printf("[%6lums] HB link=%d wifi=%d ble=%d rx=%lu\n",
+                      millis(), dataLinkOk() ? 1 : 0, g_hubWifiOk ? 1 : 0,
+                      pClient && pClient->isConnected() ? 1 : 0,
                       (unsigned long)g_rxCnt);
     }
 
     static uint32_t lastLive = 0;
-    if (!g_demoMode && g_conn && g_rxCnt > 0 && g_rpm > kLogMinRpm && millis() - lastLive >= 500) {
+    if (!g_demoMode && dataLinkOk() && g_rxCnt > 0 && g_rpm > kLogMinRpm && millis() - lastLive >= 500) {
         lastLive = millis();
         printLiveSummary();
         appendLiveCsv();
