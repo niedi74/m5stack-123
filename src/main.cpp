@@ -18,6 +18,18 @@
 #include "wifi_secret.h"
 #endif
 
+#ifndef ENABLE_ESP_NOW_CLIENT
+#define ENABLE_ESP_NOW_CLIENT 0
+#endif
+#if ENABLE_ESP_NOW_CLIENT
+#include <esp_now.h>
+#include <esp_wifi.h>
+#include "spartan_cockpit_frame.h"
+#ifndef ESP_NOW_WIFI_CHANNEL
+#define ESP_NOW_WIFI_CHANNEL 6
+#endif
+#endif
+
 // --- GC9A01 Display ---
 class LGFX : public lgfx::LGFX_Device {
     lgfx::Panel_GC9A01 _gc9a01;
@@ -164,6 +176,16 @@ static uint32_t          g_hubLastOkMs = 0;
 static uint32_t          g_hubPollCnt = 0;
 static bool              g_hubTimeSynced = false;
 static uint32_t          g_hubTimeLastApplyMs = 0;
+#if ENABLE_ESP_NOW_CLIENT
+static bool              g_espNowReady = false;
+static uint32_t          g_espNowRx = 0;
+static uint16_t          g_espNowSeq = 0;
+static uint32_t          g_espNowLastRxMs = 0;
+static volatile bool     g_espNowPending = false;
+static SpartanCockpitFrame g_espNowPendingFrame;
+static bool espNowDataFresh();
+static void espNowClientTick();
+#endif
 static uint8_t           g_wifiProfile = 0;
 
 struct WifiProfile {
@@ -174,9 +196,9 @@ struct WifiProfile {
 };
 
 static const WifiProfile WIFI_PROFILES[] = {
-    { "Android-AP1", "prof_phone_pass", nullptr, "Phone" },
-    { "Z00-Station", "prof_home_pass", nullptr, "Home" },
-    { "Spartan3-Setup", nullptr, "lambda123", "Bus" },
+    { "Android-AP1", "prof_phone_pass", nullptr, "Handy" },
+    { "Z00-Station", "prof_home_pass", nullptr, "Zuhause" },
+    { "Spartan3-Setup", nullptr, "lambda123", "BUS (Spartan Hub)" },
 };
 
 static String wifiProfilePassword(const WifiProfile& profile);
@@ -961,6 +983,12 @@ static void handleState() {
     json += "{";
     json += "\"ble\":" + String(g_conn ? "true" : "false") + ",";
     json += "\"hub_wifi\":" + String(g_hubWifiOk ? "true" : "false") + ",";
+#if ENABLE_ESP_NOW_CLIENT
+    json += "\"esp_now_ready\":" + String(g_espNowReady ? "true" : "false") + ",";
+    json += "\"esp_now_rx\":" + String((unsigned long)g_espNowRx) + ",";
+    json += "\"esp_now_seq\":" + String((unsigned)g_espNowSeq) + ",";
+    json += "\"esp_now_fresh\":" + String(espNowDataFresh() ? "true" : "false") + ",";
+#endif
     json += "\"data_link\":" + String(dataLinkOk() ? "true" : "false") + ",";
     json += "\"demo\":" + String(g_demoMode ? "true" : "false") + ",";
     json += "\"page\":\"" + String(pageName()) + "\",";
@@ -1170,7 +1198,92 @@ static bool hubWifiPreferred() {
     return gatewayUsesWifiHub() && WiFi.status() == WL_CONNECTED;
 }
 
+#if ENABLE_ESP_NOW_CLIENT
+static bool espNowClientActive() {
+    return gatewayUsesWifiHub() && isOnBusWifi();
+}
+
+static bool espNowDataFresh() {
+    return g_espNowLastRxMs != 0 && (millis() - g_espNowLastRxMs) < kHubFreshMs;
+}
+
+static void applyEspNowFrame(const SpartanCockpitFrame& frame) {
+    g_espNowSeq = frame.seq;
+    const bool lambdaValid = (frame.flags & kSpartanFlagLambdaValid) != 0;
+    if (lambdaValid && frame.lambda_x1000 > 0) {
+        g_lambda = frame.lambda_x1000 / 1000.0f;
+        g_lambdaValid = true;
+    } else {
+        g_lambdaValid = false;
+    }
+    g_rpm = frame.rpm;
+    g_adv = frame.advance_x10 / 10.0f;
+    g_map = frame.map;
+    g_espNowLastRxMs = millis();
+    g_hubLastOkMs = g_espNowLastRxMs;
+    g_hubWifiOk = true;
+    g_rxCnt++;
+}
+
+#if defined(ESP_IDF_VERSION) && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+static void onEspNowRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len) {
+    (void)info;
+#else
+static void IRAM_ATTR onEspNowRecv(const uint8_t* mac, const uint8_t* data, int len) {
+    (void)mac;
+#endif
+    if (len != (int)kSpartanCockpitFrameSize) return;
+    SpartanCockpitFrame frame;
+    memcpy(&frame, data, sizeof(frame));
+    if (!spartanCockpitFrameValid(frame)) return;
+    g_espNowPendingFrame = frame;
+    g_espNowPending = true;
+    if (g_espNowRx < UINT32_MAX) g_espNowRx++;
+}
+
+static void espNowClientProcessPending() {
+    if (!g_espNowPending) return;
+    SpartanCockpitFrame frame;
+    noInterrupts();
+    frame = g_espNowPendingFrame;
+    g_espNowPending = false;
+    interrupts();
+    applyEspNowFrame(frame);
+}
+
+static void setupEspNowClient() {
+    if (g_espNowReady || !espNowClientActive()) return;
+    if (WiFi.status() != WL_CONNECTED) return;
+
+    esp_wifi_set_channel(ESP_NOW_WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
+    if (esp_now_init() != ESP_OK) {
+        Serial.println("ESP-NOW: init failed");
+        return;
+    }
+    esp_now_register_recv_cb(onEspNowRecv);
+    g_espNowReady = true;
+    Serial.printf("ESP-NOW: recv ready on channel %d\n", ESP_NOW_WIFI_CHANNEL);
+    pushLog("ESP-NOW ch%d", ESP_NOW_WIFI_CHANNEL);
+}
+
+static void espNowClientTick() {
+    espNowClientProcessPending();
+    if (!espNowClientActive()) {
+        if (g_espNowReady) {
+            esp_now_deinit();
+            g_espNowReady = false;
+            g_espNowLastRxMs = 0;
+        }
+        return;
+    }
+    setupEspNowClient();
+}
+#endif
+
 static bool hubDataFresh() {
+#if ENABLE_ESP_NOW_CLIENT
+    if (espNowDataFresh()) return true;
+#endif
     return g_hubLastOkMs != 0 && (millis() - g_hubLastOkMs) < kHubFreshMs;
 }
 
@@ -1237,6 +1350,30 @@ static void maybeSyncFromHubJson(const String& json) {
 
 static bool parseHubStatusJson(const String& json) {
     if (decodeGatewayCompact(json)) return true;
+
+    maybeSyncFromHubJson(json);
+
+#if ENABLE_ESP_NOW_CLIENT
+    if (espNowDataFresh()) {
+        float value = 0;
+        if (jsonNumber(json, "bm6_voltage", value) && value > 0.5f) {
+            g_battVolt = value;
+            g_battValid = true;
+        } else if (jsonNumber(json, "volt", value) && value > 0.5f) {
+            g_battVolt = value;
+            g_battValid = true;
+        }
+        if (jsonNumber(json, "speed_kmh", value) && value >= 0.0f) {
+            g_speedKmh = value;
+            g_speedValid = true;
+        }
+        if (jsonNumber(json, "123_volt", value)) g_gw123Volt = value;
+        if (jsonNumber(json, "123_temp", value)) g_gw123Temp = value;
+        if (jsonNumber(json, "123_coil", value)) g_gw123Coil = value;
+        if (g_gw123Volt > 0.1f || g_gw123Temp > 0.1f) g_gw123Valid = true;
+        return true;
+    }
+#endif
 
     bool valid = false;
     const bool hasValid = jsonExtractBool(json, "valid", &valid);
@@ -1309,7 +1446,6 @@ static void hubWifiPollTick() {
     if (code == HTTP_CODE_OK) {
         const String body = http.getString();
         if (body.length() > 10 && parseHubStatusJson(body)) {
-            maybeSyncFromHubJson(body);
             g_hubWifiOk = true;
             g_hubLastOkMs = now;
             static bool announced = false;
@@ -3377,6 +3513,9 @@ void setup() {
     NimBLEDevice::setMTU(23);
     if (gatewayUsesWifiHub()) {
         pushLog("GW WiFi poll");
+#if ENABLE_ESP_NOW_CLIENT
+        pushLog("ESP-NOW Bus ch%d", ESP_NOW_WIFI_CHANNEL);
+#endif
     } else {
         startScan();
     }
@@ -3386,6 +3525,9 @@ void loop() {
     pollSerialCommands();
     serviceDemoMode();
     maintainWifi();
+#if ENABLE_ESP_NOW_CLIENT
+    espNowClientTick();
+#endif
     hubWifiPollTick();
     serviceBuzzer();
     serviceScanRetry();
