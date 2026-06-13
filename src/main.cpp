@@ -794,8 +794,13 @@ static String wifiModeLabel() {
 }
 
 static String wifiIpLabel() {
-    if (WiFi.status() == WL_CONNECTED) return WiFi.localIP().toString();
+    if (WiFi.status() == WL_CONNECTED) {
+        IPAddress lip = WiFi.localIP();
+        if (lip == IPAddress(0, 0, 0, 0)) return "...";
+        return lip.toString();
+    }
     if (g_wifiAp) return WiFi.softAPIP().toString();
+    if (g_haveSavedWifi && !g_wifiQuietOff) return "...";
     return "-";
 }
 
@@ -809,6 +814,7 @@ static void stopSetupAp(bool keepStaMode = true);
 static void setWifiHomeApEnabled(bool enabled);
 static bool isSpartanApWifiPreset();
 static bool hubWifiPreferred();
+static void applyWifiIpConfig();
 static bool hubDataFresh();
 static bool dataLinkOk();
 
@@ -918,7 +924,7 @@ static void handleRoot() {
     html += "<p id='wifi_result' class='muted'></p>";
     html += "<a href='/wps'>Start WPS</a>";
     html += "<p class='muted'>WPS: first click Start WPS here, then press Connect/WPS on the FRITZ!Box.</p>";
-    html += "<p class='muted'>Unterwegs: Handy mit Spartan3-Setup verbinden. Spartan bleibt http://192.168.4.1/, M5 wird http://192.168.4.2/.</p>";
+    html += "<p class='muted'>Unterwegs: Handy mit Spartan3-Setup verbinden. Hub http://192.168.4.1/, M5 http://192.168.4.2/, Waveshare http://192.168.4.3/.</p>";
     html += "<p class='muted'>While stationary, setup fallback uses M5Dial-123-Setup with DHCP at 192.168.4.1. If RPM rises above 650 before Home WiFi connects, WiFi setup is switched off for quiet driving.</p></div></div></div>";
     html += "<script>";
     html += "function c(s){return s>0?'red':s<0?'blue':'orange'}";
@@ -1120,6 +1126,31 @@ static void cycleWifiProfile() {
 
 static bool isOnBusWifi() {
     return WiFi.status() == WL_CONNECTED && WiFi.SSID() == kSpartanApSsid;
+}
+
+static void applyWifiIpConfig() {
+    String ssid = prefs.getString("ssid", "");
+    if (ssid.length() == 0 && WiFi.status() == WL_CONNECTED) ssid = WiFi.SSID();
+    if (ssid == kSpartanApSsid) {
+        IPAddress ip, gw, mask, dns;
+        ip.fromString(kSpartanApM5Ip);
+        gw.fromString(kSpartanApGateway);
+        mask.fromString("255.255.255.0");
+        dns.fromString(kSpartanApGateway);
+        WiFi.config(ip, gw, mask, dns);
+        Serial.printf("[WIFI] Bus static %s (hub %s)\n", kSpartanApM5Ip, kSpartanApGateway);
+        return;
+    }
+    if (prefs.getBool("static", false)) {
+        IPAddress ip, gw, mask, dns1;
+        ip.fromString(prefs.getString("ip", "192.168.0.13"));
+        gw.fromString(prefs.getString("gw", "192.168.0.1"));
+        mask.fromString(prefs.getString("mask", "255.255.255.0"));
+        dns1.fromString(prefs.getString("dns", "192.168.0.1"));
+        WiFi.config(ip, gw, mask, dns1);
+    } else {
+        WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE);
+    }
 }
 
 static String hubPollHost() {
@@ -1505,6 +1536,7 @@ static void onWifiEvent(WiFiEvent_t event, arduino_event_info_t info) {
             if (g_haveSavedWifi && (!g_wifiAp || g_wifiHomeApEnabled) && !g_wifiQuietOff &&
                 g_wifiConnectStartedAt == 0) {
                 g_wifiConnectStartedAt = millis();
+                applyWifiIpConfig();
                 WiFi.reconnect();
             }
             break;
@@ -1609,14 +1641,10 @@ static void setupWifi() {
     String pass = prefs.getString("pass", "");
     g_haveSavedWifi = ssid.length() > 0;
     if (ssid.length() > 0) {
+        if (ssid == kSpartanApSsid && !prefs.getBool("static", false)) saveSpartanApWifiPreset();
+        applyWifiIpConfig();
         if (prefs.getBool("static", false)) {
-            IPAddress ip, gw, mask, dns1;
-            ip.fromString(prefs.getString("ip", "192.168.0.13"));
-            gw.fromString(prefs.getString("gw", "192.168.0.1"));
-            mask.fromString(prefs.getString("mask", "255.255.255.0"));
-            dns1.fromString(prefs.getString("dns", "192.168.0.1"));
-            WiFi.config(ip, gw, mask, dns1);
-            pushLog("WiFi static %s", ip.toString().c_str());
+            pushLog("WiFi static %s", prefs.getString("ip", "?").c_str());
         }
         WiFi.begin(ssid.c_str(), pass.c_str());
         g_wifiConnectStartedAt = millis();
@@ -1659,6 +1687,19 @@ static void maintainWifi() {
     }
 
     if (g_wifiAp && !g_wifiHomeApEnabled) return;
+
+    if (g_haveSavedWifi && g_wifiConnectStartedAt != 0 &&
+        millis() - g_wifiConnectStartedAt < kWifiConnectWindowMs) {
+        static uint32_t lastRetry = 0;
+        if (millis() - lastRetry > 30000) {
+            lastRetry = millis();
+            String ssid = prefs.getString("ssid", "");
+            String pass = prefs.getString("pass", "");
+            applyWifiIpConfig();
+            WiFi.begin(ssid.c_str(), pass.c_str());
+            pushLog("WiFi retry...");
+        }
+    }
 
     if (g_haveSavedWifi && g_wifiConnectStartedAt != 0 &&
         millis() - g_wifiConnectStartedAt >= kWifiConnectWindowMs) {
