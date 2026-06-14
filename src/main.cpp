@@ -136,6 +136,7 @@ static bool              g_touchNavigation = false;
 static bool              g_demoMode = false;
 static bool              g_batteryHoldEnabled = true;
 static bool              g_wifiHomeApEnabled = false;
+static bool              g_espNowEnabled = true;
 static uint8_t           g_brightness = 200;
 static uint8_t           g_rotationQuarterTurns = 0;
 static uint32_t          g_beepUntil = 0;
@@ -156,8 +157,8 @@ static constexpr int kTuneMaxSteps = 10;       // temporary test correction limi
 static constexpr uint32_t kTuneArmTimeoutMs = 30000;  // ARM expires unless LIVE is confirmed
 static constexpr uint8_t kBuzzerChannel = 6;
 static constexpr uint8_t kSettingCountMain = 7;
-static constexpr uint8_t kSettingCountSystem = 5;
-static constexpr uint8_t kUiSettingsVersion = 5;  // v5: WiFi profiles + Gateway default + Hub time.
+static constexpr uint8_t kSettingCountSystem = 7;
+static constexpr uint8_t kUiSettingsVersion = 6;  // v6: Fahrt = 123 BLE direkt + ESP-NOW Lambda.
 static constexpr uint8_t kDisplayBaseRotation = 2;  // Existing upright installation is the 0 deg reference.
 static constexpr uint32_t kScanWindowMs = 10000;
 static constexpr uint32_t kScanPauseMs[] = { 5000, 10000, 20000, 30000 };
@@ -178,6 +179,7 @@ static bool              g_hubTimeSynced = false;
 static uint32_t          g_hubTimeLastApplyMs = 0;
 #if ENABLE_ESP_NOW_CLIENT
 static bool              g_espNowReady = false;
+static uint8_t           g_espNowActiveChannel = 0;
 static uint32_t          g_espNowRx = 0;
 static uint16_t          g_espNowSeq = 0;
 static uint32_t          g_espNowLastRxMs = 0;
@@ -185,6 +187,10 @@ static volatile bool     g_espNowPending = false;
 static SpartanCockpitFrame g_espNowPendingFrame;
 static bool espNowDataFresh();
 static void espNowClientTick();
+static void teardownEspNowClient();
+static const char* espNowChannelLabel();
+static void cycleEspNowChannel();
+static uint8_t espNowEffectiveChannel();
 #endif
 static uint8_t           g_wifiProfile = 0;
 
@@ -580,6 +586,7 @@ static void saveUiSettings() {
     prefs.putBool("bat_hold", g_batteryHoldEnabled);
     prefs.putBool("wifi_apsta", g_wifiHomeApEnabled);
     prefs.putUChar("conn_mode", static_cast<uint8_t>(g_connectionMode));
+    prefs.putBool("espnow_on", g_espNowEnabled);
     prefs.putUChar("wifi_prof", g_wifiProfile);
     prefs.putUChar("bright", g_brightness);
     prefs.putUChar("rot_q", g_rotationQuarterTurns);
@@ -623,7 +630,16 @@ static void loadUiSettings() {
         g_touchNavigation = false;
         g_batteryHoldEnabled = true;
         g_wifiHomeApEnabled = false;
-        g_connectionMode = CONN_SPARTAN_GATEWAY;
+        g_connectionMode = CONN_DIRECT_123;
+        g_espNowEnabled = true;
+        g_page = PAGE_LAMBDA;
+        saveUiSettings();
+    } else if (oldVer < kUiSettingsVersion) {
+        g_connectionMode = CONN_DIRECT_123;
+        g_espNowEnabled = true;
+        g_wifiHomeApEnabled = false;
+        g_touchNavigation = false;
+        g_page = PAGE_LAMBDA;
         saveUiSettings();
     } else {
         g_buzzerEnabled = prefs.getBool("buzzer", false);
@@ -633,12 +649,9 @@ static void loadUiSettings() {
         g_touchNavigation = prefs.getBool("touch_nav", false);
         g_batteryHoldEnabled = prefs.getBool("bat_hold", true);
         g_wifiHomeApEnabled = prefs.getBool("wifi_apsta", false);
-        g_connectionMode = prefs.getUChar("conn_mode", CONN_SPARTAN_GATEWAY) == CONN_SPARTAN_GATEWAY ?
+        g_connectionMode = prefs.getUChar("conn_mode", CONN_DIRECT_123) == CONN_SPARTAN_GATEWAY ?
                            CONN_SPARTAN_GATEWAY : CONN_DIRECT_123;
-        if (oldVer < kUiSettingsVersion) {
-            g_connectionMode = CONN_SPARTAN_GATEWAY;
-            saveUiSettings();
-        }
+        g_espNowEnabled = prefs.getBool("espnow_on", true);
     }
     g_wifiProfile = prefs.getUChar("wifi_prof", 0);
     if (g_brightness < 40) g_brightness = 40;
@@ -898,7 +911,9 @@ static void handleRoot() {
     html += "<div id='sys1' class='item'><span>Home+AP</span><span id='wifiapsta' class='" + String(g_wifiHomeApEnabled ? "on'>ON" : "off'>OFF") + "</span></div>";
     html += "<div id='sys2' class='item'><span>Brightness</span><span id='bright'>" + String(g_brightness) + "</span></div>";
     html += "<div id='sys3' class='item'><span>Rotation</span><span id='rotation'>" + String(displayRotationDegrees()) + " deg</span></div>";
-    html += "<div id='sys4' class='item'><span>WiFi</span><span id='wifipreset'>" + String(isSpartanApWifiPreset() ? "Spartan" : "Home") + "</span></div></div></div>";
+    html += "<div id='sys4' class='item'><span>WiFi</span><span id='wifipreset'>" + String(isSpartanApWifiPreset() ? "Spartan" : "Home") + "</span></div>";
+    html += "<div id='sys5' class='item'><span>ESP-NOW</span><span id='espnowon' class='" + String(g_espNowEnabled ? "on'>ON" : "off'>OFF") + "</span></div>";
+    html += "<div id='sys6' class='item'><span>ESPN ch</span><span id='espnowch'>" + String(espNowChannelLabel()) + "</span></div></div></div>";
     html += "<div class='dial'><div class='top'><span id='ble5' class='ble'>" + liveText + "</span><span id='ign5' class='ign'>" + ignitionText + "</span><span class='mode warn'>TUNE</span></div>";
     html += "<div id='tunetitle' class='screen-title " + String(g_demoMode ? "demo" : "warn") + "'>" + tuneTitle + "</div><div id='tunestate' class='tunestate safe'>" + tuneState + "</div>";
     html += "<div id='tunehelp' class='tunehelp'>Hold on device 2s to ARM</div><div id='tunestep' class='tunestep orange'>+0</div>";
@@ -920,6 +935,8 @@ static void handleRoot() {
     html += "<label class='toggle-row'><span>Demo mode</span><input id='ctl_demo' type='checkbox' onchange=\"setFlag('demo',this.checked)\"></label>";
     html += "<label class='toggle-row'><span>Battery power</span><input id='ctl_bathold' type='checkbox' onchange=\"setFlag('battery_hold',this.checked)\"></label>";
     html += "<label class='toggle-row'><span>Home WiFi + AP</span><input id='ctl_wifiapsta' type='checkbox' onchange=\"setFlag('wifi_home_ap',this.checked)\"></label>";
+    html += "<label class='toggle-row'><span>ESP-NOW Lambda</span><input id='ctl_espnow' type='checkbox' onchange=\"setFlag('esp_now',this.checked)\"></label>";
+    html += "<label class='select-row'><span>ESP-NOW Kanal</span><select id='ctl_espnow_ch' onchange=\"setUi('esp_now_ch',this.value)\"><option value='0'>Auto (WiFi)</option><option value='6'>6 (Bus)</option><option value='11'>11 (Handy)</option></select></label>";
     html += "<label class='slider-row'><span>Brightness <output id='ctl_bright_value'>" + String(g_brightness) + "</output></span><input id='ctl_bright' type='range' min='40' max='255' step='5' value='" + String(g_brightness) + "' onchange=\"setUi('brightness',this.value)\"></label>";
     html += "<label class='select-row'><span>Rotation</span><select id='ctl_rotation' onchange=\"setUi('rotation',this.value)\"><option value='0'>0 deg</option><option value='90'>90 deg</option><option value='180'>180 deg</option><option value='270'>270 deg</option></select></label>";
     html += "<label class='select-row'><span>Connection</span><select id='ctl_conn' onchange=\"setUi('connection',this.value)\"><option value='direct'>123 direkt</option><option value='gateway'>Spartan Gateway</option></select></label>";
@@ -959,11 +976,11 @@ static void handleRoot() {
     html += "tunelbl.textContent=d.tune_active?('TUNE '+(d.tune_steps>=0?'+':'')+d.tune_steps):'ADVANCE  deg';tunelbl.className='tunelbl '+c(d.tune_steps);";
     html += "map.textContent=Number(d.map_bar).toFixed(2);lambda.textContent=d.lambda_valid?Number(d.lambda).toFixed(2):'--';rpm.textContent=d.rpm;aux1.textContent=d.temp;aux2.textContent=Number(d.volt).toFixed(1);";
     html += "if(!d.lambda_valid){lambda.style.color='#666'}else if(d.lambda<0.8){lambda.style.color='#ffd54a'}else if(d.lambda<0.9){lambda.style.color='#35d46b'}else if(d.lambda<1.0){lambda.style.color='#f39c12'}else{lambda.style.color='#ff3838'};";
-    html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);yn('demomode',d.demo);if(d.demo)demomode.className='demo';yn('bathold',d.battery_hold);yn('wifiapsta',d.wifi_home_ap);bright.textContent=d.brightness;rotation.textContent=d.rotation_deg+' deg';connmode.textContent=d.connection_label;wifipreset.textContent=d.wifi_profile||'Home';";
-    html += "ctl_buzzer.checked=d.buzzer;ctl_button.checked=d.beep_actions;ctl_ble.checked=d.beep_ble;ctl_error.checked=d.beep_errors;ctl_touch.checked=d.touch_nav;ctl_demo.checked=d.demo;ctl_bathold.checked=d.battery_hold;ctl_wifiapsta.checked=d.wifi_home_ap;ctl_bright.value=d.brightness;ctl_bright_value.textContent=d.brightness;ctl_rotation.value=String(d.rotation_deg);ctl_conn.value=d.connection;";
-    html += "ctl_buzzer.disabled=d.settings_locked&&!d.buzzer;ctl_button.disabled=d.settings_locked&&!d.beep_actions;ctl_ble.disabled=d.settings_locked&&!d.beep_ble;ctl_error.disabled=d.settings_locked&&!d.beep_errors;ctl_touch.disabled=d.settings_locked&&!d.touch_nav;ctl_demo.disabled=d.settings_locked&&!d.demo;ctl_bathold.disabled=d.settings_locked;ctl_wifiapsta.disabled=d.settings_locked;ctl_bright.disabled=d.settings_locked;ctl_rotation.disabled=d.settings_locked;ctl_conn.disabled=d.settings_locked;";
+    html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);yn('demomode',d.demo);if(d.demo)demomode.className='demo';yn('bathold',d.battery_hold);yn('wifiapsta',d.wifi_home_ap);yn('espnowon',d.esp_now_enabled);bright.textContent=d.brightness;rotation.textContent=d.rotation_deg+' deg';connmode.textContent=d.connection_label;wifipreset.textContent=d.wifi_profile||'Home';if(document.getElementById('espnowch'))espnowch.textContent=d.esp_now_channel_label||'-';";
+    html += "ctl_buzzer.checked=d.buzzer;ctl_button.checked=d.beep_actions;ctl_ble.checked=d.beep_ble;ctl_error.checked=d.beep_errors;ctl_touch.checked=d.touch_nav;ctl_demo.checked=d.demo;ctl_bathold.checked=d.battery_hold;ctl_wifiapsta.checked=d.wifi_home_ap;ctl_espnow.checked=d.esp_now_enabled;ctl_espnow_ch.value=String(d.esp_now_channel_pref||0);ctl_bright.value=d.brightness;ctl_bright_value.textContent=d.brightness;ctl_rotation.value=String(d.rotation_deg);ctl_conn.value=d.connection;";
+    html += "ctl_buzzer.disabled=d.settings_locked&&!d.buzzer;ctl_button.disabled=d.settings_locked&&!d.beep_actions;ctl_ble.disabled=d.settings_locked&&!d.beep_ble;ctl_error.disabled=d.settings_locked&&!d.beep_errors;ctl_touch.disabled=d.settings_locked&&!d.touch_nav;ctl_demo.disabled=d.settings_locked&&!d.demo;ctl_bathold.disabled=d.settings_locked;ctl_wifiapsta.disabled=d.settings_locked;ctl_espnow.disabled=d.settings_locked&&!d.esp_now_enabled;ctl_espnow_ch.disabled=d.settings_locked;ctl_bright.disabled=d.settings_locked;ctl_rotation.disabled=d.settings_locked;ctl_conn.disabled=d.settings_locked;";
     html += "for(let i=0;i<7;i++)document.getElementById('set'+i).className='item '+(d.page=='SET'&&i==d.setting_index?'sel':'');";
-    html += "for(let i=0;i<5;i++)document.getElementById('sys'+i).className='item '+(d.page=='SET2'&&i==d.setting_index?'sel':'');";
+    html += "for(let i=0;i<7;i++){let e=document.getElementById('sys'+i);if(e)e.className='item '+(d.page=='SET2'&&i==d.setting_index?'sel':'');}";
     html += "tunetitle.textContent=d.demo?'DEMO TUNE':'LIVE TUNE';tunetitle.className='screen-title '+(d.demo?'demo':'warn');";
     html += "let st=d.tune_active?(d.demo?'SIM LIVE':'LIVE'):(d.tune_armed?(d.demo?'SIM ARMED':'ARMED'):'LOCKED');tunestate.textContent=st;tunestate.className='tunestate '+(d.demo?'demo':(d.tune_active?'warn':(d.tune_armed?'safe':'off')));";
     html += "tunehelp.textContent=d.tune_active?'Rotate on device +/-; hold 2s to EXIT':(d.tune_armed?'Hold on device 2s to START':'Hold on device 2s to ARM');";
@@ -988,6 +1005,10 @@ static void handleState() {
     json += "\"esp_now_rx\":" + String((unsigned long)g_espNowRx) + ",";
     json += "\"esp_now_seq\":" + String((unsigned)g_espNowSeq) + ",";
     json += "\"esp_now_fresh\":" + String(espNowDataFresh() ? "true" : "false") + ",";
+    json += "\"esp_now_enabled\":" + String(g_espNowEnabled ? "true" : "false") + ",";
+    json += "\"esp_now_channel\":" + String(g_espNowReady ? g_espNowActiveChannel : espNowEffectiveChannel()) + ",";
+    json += "\"esp_now_channel_label\":\"" + String(espNowChannelLabel()) + "\",";
+    json += "\"esp_now_channel_pref\":" + String(prefs.getUChar("espnow_ch", 0)) + ",";
 #endif
     json += "\"data_link\":" + String(dataLinkOk() ? "true" : "false") + ",";
     json += "\"demo\":" + String(g_demoMode ? "true" : "false") + ",";
@@ -1200,7 +1221,25 @@ static bool hubWifiPreferred() {
 
 #if ENABLE_ESP_NOW_CLIENT
 static bool espNowClientActive() {
-    return gatewayUsesWifiHub() && isOnBusWifi();
+    return g_espNowEnabled && !g_demoMode;
+}
+
+static uint8_t espNowEffectiveChannel() {
+    if (WiFi.status() == WL_CONNECTED) {
+        const uint8_t ch = WiFi.channel();
+        if (ch > 0 && ch <= 14) return ch;
+    }
+    const uint8_t saved = prefs.getUChar("espnow_ch", 0);
+    if (saved >= 1 && saved <= 14) return saved;
+    return ESP_NOW_WIFI_CHANNEL;
+}
+
+static void teardownEspNowClient() {
+    if (!g_espNowReady) return;
+    esp_now_deinit();
+    g_espNowReady = false;
+    g_espNowActiveChannel = 0;
+    g_espNowLastRxMs = 0;
 }
 
 static bool espNowDataFresh() {
@@ -1213,15 +1252,13 @@ static void applyEspNowFrame(const SpartanCockpitFrame& frame) {
     if (lambdaValid && frame.lambda_x1000 > 0) {
         g_lambda = frame.lambda_x1000 / 1000.0f;
         g_lambdaValid = true;
-    } else {
-        g_lambdaValid = false;
     }
-    g_rpm = frame.rpm;
-    g_adv = frame.advance_x10 / 10.0f;
-    g_map = frame.map;
+    if (g_connectionMode == CONN_SPARTAN_GATEWAY) {
+        g_rpm = frame.rpm;
+        g_adv = frame.advance_x10 / 10.0f;
+        g_map = frame.map;
+    }
     g_espNowLastRxMs = millis();
-    g_hubLastOkMs = g_espNowLastRxMs;
-    g_hubWifiOk = true;
     g_rxCnt++;
 }
 
@@ -1252,31 +1289,67 @@ static void espNowClientProcessPending() {
 }
 
 static void setupEspNowClient() {
-    if (g_espNowReady || !espNowClientActive()) return;
-    if (WiFi.status() != WL_CONNECTED) return;
+    if (!espNowClientActive()) return;
+    if (WiFi.getMode() == WIFI_OFF) {
+        WiFi.mode(WIFI_STA);
+        WiFi.disconnect();
+    }
+    const uint8_t channel = espNowEffectiveChannel();
+    if (g_espNowReady && g_espNowActiveChannel == channel) {
+        return;
+    }
+    if (g_espNowReady) {
+        teardownEspNowClient();
+    }
 
-    esp_wifi_set_channel(ESP_NOW_WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
+    esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
     if (esp_now_init() != ESP_OK) {
         Serial.println("ESP-NOW: init failed");
         return;
     }
     esp_now_register_recv_cb(onEspNowRecv);
     g_espNowReady = true;
-    Serial.printf("ESP-NOW: recv ready on channel %d\n", ESP_NOW_WIFI_CHANNEL);
-    pushLog("ESP-NOW ch%d", ESP_NOW_WIFI_CHANNEL);
+    g_espNowActiveChannel = channel;
+    Serial.printf("ESP-NOW: recv ready on channel %u\n", channel);
+    pushLog("ESP-NOW ch%u", channel);
 }
 
 static void espNowClientTick() {
     espNowClientProcessPending();
     if (!espNowClientActive()) {
-        if (g_espNowReady) {
-            esp_now_deinit();
-            g_espNowReady = false;
-            g_espNowLastRxMs = 0;
-        }
+        teardownEspNowClient();
         return;
     }
+    const uint8_t channel = espNowEffectiveChannel();
+    if (g_espNowReady && g_espNowActiveChannel != channel) {
+        teardownEspNowClient();
+    }
     setupEspNowClient();
+}
+
+static const char* espNowChannelLabel() {
+    static char buf[12];
+    if (!g_espNowEnabled) return "AUS";
+    const uint8_t pref = prefs.getUChar("espnow_ch", 0);
+    if (pref >= 1 && pref <= 14) {
+        snprintf(buf, sizeof(buf), "%u", pref);
+        return buf;
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+        snprintf(buf, sizeof(buf), "A%u", WiFi.channel());
+        return buf;
+    }
+    return "AUTO";
+}
+
+static void cycleEspNowChannel() {
+    uint8_t ch = prefs.getUChar("espnow_ch", 0);
+    if (ch == 0) ch = 6;
+    else if (ch == 6) ch = 11;
+    else ch = 0;
+    prefs.putUChar("espnow_ch", ch);
+    teardownEspNowClient();
+    pushLog("ESPN ch %s", espNowChannelLabel());
 }
 #endif
 
@@ -1590,6 +1663,15 @@ static void disableWifiQuiet(const char* reason) {
     stopWps();
     stopSetupAp(false);
     WiFi.disconnect(true, false);
+#if ENABLE_ESP_NOW_CLIENT
+    if (g_espNowEnabled) {
+        WiFi.mode(WIFI_STA);
+        const uint8_t ch = espNowEffectiveChannel();
+        esp_wifi_set_channel(ch, WIFI_SECOND_CHAN_NONE);
+        pushLog("%s ESP-NOW ch%u", reason, ch);
+        return;
+    }
+#endif
     WiFi.mode(WIFI_OFF);
     pushLog("%s", reason);
 }
@@ -1965,7 +2047,8 @@ static void handleUiSetting() {
     bool isFlag = setting == "buzzer" || setting == "beep_actions" ||
                   setting == "beep_ble" || setting == "beep_errors" ||
                   setting == "touch_nav" || setting == "demo" ||
-                  setting == "battery_hold" || setting == "wifi_home_ap";
+                  setting == "battery_hold" || setting == "wifi_home_ap" ||
+                  setting == "esp_now";
 
     if (setting.length() == 0 || value.length() == 0) {
         web.send(400, "text/plain", "Missing setting or value");
@@ -2031,6 +2114,20 @@ static void handleUiSetting() {
         }
         g_rotationQuarterTurns = static_cast<uint8_t>(rotation / 90);
         applyDisplayRotation();
+#if ENABLE_ESP_NOW_CLIENT
+    } else if (setting == "esp_now") {
+        g_espNowEnabled = enabled;
+        if (!enabled) teardownEspNowClient();
+    } else if (setting == "esp_now_ch") {
+        int ch = value.toInt();
+        if (ch < 0 || ch > 14) {
+            web.send(400, "text/plain", "Channel must be 0 (auto), 6 or 11");
+            return;
+        }
+        prefs.putUChar("espnow_ch", (uint8_t)ch);
+        teardownEspNowClient();
+        pushLog("ESPN ch %s", espNowChannelLabel());
+#endif
     } else if (setting == "connection") {
         ConnectionMode nextMode = value.equalsIgnoreCase("gateway") || value == "1" ?
                                   CONN_SPARTAN_GATEWAY : CONN_DIRECT_123;
@@ -3232,7 +3329,7 @@ static void drawSettings() {
     const bool systemPage = g_page == PAGE_SETTINGS2;
     const char* labelsMain[] = { "Buzzer", "Button tone", "BLE tone", "Error tone", "Touch nav", "Demo mode", "Conn" };
     bool valuesMain[] = { g_buzzerEnabled, g_beepActions, g_beepBle, g_beepErrors, g_touchNavigation, g_demoMode };
-    const char* labelsSystem[] = { "Bat power", "Home+AP", "Brightness", "Rotation", "WiFi" };
+    const char* labelsSystem[] = { "Bat power", "Home+AP", "Brightness", "Rotation", "WiFi", "ESP-NOW", "ESPN ch" };
     bool valuesSystem[] = { g_batteryHoldEnabled, g_wifiHomeApEnabled };
     uint8_t count = settingCountForPage();
     display.fillRect(0, 44, 240, 196, TFT_BLACK);
@@ -3269,6 +3366,12 @@ static void drawSettings() {
         } else if (i == 4) {
             snprintf(value, sizeof(value), "%s", wifiProfileLabel());
             display.setTextColor(isSpartanApWifiPreset() ? (uint32_t)TFT_CYAN : (uint32_t)TFT_GREEN);
+        } else if (i == 5) {
+            snprintf(value, sizeof(value), "%s", g_espNowEnabled ? "ON" : "OFF");
+            display.setTextColor(g_espNowEnabled ? (uint32_t)TFT_GREEN : (uint32_t)TFT_DARKGREY);
+        } else if (i == 6) {
+            snprintf(value, sizeof(value), "%s", espNowChannelLabel());
+            display.setTextColor(TFT_SKYBLUE);
         }
         display.drawString(value, 208, y);
     }
@@ -3351,6 +3454,14 @@ static void activateSetting() {
                     break;
                 }
                 cycleWifiProfile();
+                break;
+            case 5:
+                g_espNowEnabled = !g_espNowEnabled;
+                if (!g_espNowEnabled) teardownEspNowClient();
+                pushLog("ESP-NOW %s", g_espNowEnabled ? "AN" : "AUS");
+                break;
+            case 6:
+                cycleEspNowChannel();
                 break;
         }
         saveUiSettings();
@@ -3511,14 +3622,20 @@ void setup() {
     NimBLEDevice::init("M5Dial-NUS");
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
     NimBLEDevice::setMTU(23);
-    if (gatewayUsesWifiHub()) {
+    if (g_connectionMode == CONN_SPARTAN_GATEWAY) {
         pushLog("GW WiFi poll");
-#if ENABLE_ESP_NOW_CLIENT
-        pushLog("ESP-NOW Bus ch%d", ESP_NOW_WIFI_CHANNEL);
-#endif
     } else {
+        pushLog("Fahrt: 123 BLE");
+        if (g_espNowEnabled) {
+            pushLog("+ ESP-NOW Lambda");
+        }
         startScan();
     }
+#if ENABLE_ESP_NOW_CLIENT
+    if (g_espNowEnabled && g_connectionMode == CONN_SPARTAN_GATEWAY) {
+        pushLog("ESP-NOW Bus ch%d", ESP_NOW_WIFI_CHANNEL);
+    }
+#endif
 }
 
 void loop() {
