@@ -112,9 +112,9 @@ static volatile float    g_gw123Volt = 0.0f;   // 123 interne Spannung via Gatew
 static volatile float    g_gw123Temp = 0.0f;   // 123 interne Temp via Gateway
 static volatile float    g_gw123Coil = 0.0f;   // 123 Zuendspulenstrom via Gateway
 static volatile bool     g_gw123Valid = false;
-enum UiPage : uint8_t { PAGE_MAIN, PAGE_LAMBDA, PAGE_AUX, PAGE_123, PAGE_SPEED, PAGE_BAT, PAGE_SETTINGS, PAGE_SETTINGS2, PAGE_TUNE, PAGE_COUNT };
+enum UiPage : uint8_t { PAGE_MAIN, PAGE_LAMBDA, PAGE_AUX, PAGE_123, PAGE_SPEED, PAGE_BAT, PAGE_STATUS, PAGE_SETTINGS, PAGE_SETTINGS2, PAGE_TUNE, PAGE_COUNT };
 enum BeepKind : uint8_t { BEEP_ACTION, BEEP_BLE, BEEP_ERROR };
-enum ConnectionMode : uint8_t { CONN_DIRECT_123 = 0, CONN_SPARTAN_GATEWAY = 1 };
+enum ConnectionMode : uint8_t { CONN_DIRECT_123 = 0, CONN_SPARTAN_GATEWAY = 1, CONN_ESPNOW_BUS = 2 };
 
 static UiPage            g_page = PAGE_MAIN;
 static ConnectionMode    g_connectionMode = CONN_DIRECT_123;
@@ -518,13 +518,16 @@ static uint32_t lambdaColor()
 }
 
 static const char* connectionModeLabel() {
-    return g_connectionMode == CONN_SPARTAN_GATEWAY ? "Gateway" : "123 dir";
+    if (g_connectionMode == CONN_SPARTAN_GATEWAY) return "Hub HTTP";
+    if (g_connectionMode == CONN_ESPNOW_BUS) return "ESP-NOW";
+    return "123 dir";
 }
 
 static const char* pageName() {
     switch (g_page) {
         case PAGE_LAMBDA: return "LAM";
         case PAGE_AUX: return "T/V";
+        case PAGE_STATUS: return "STAT";
         case PAGE_SETTINGS: return "SET";
         case PAGE_SETTINGS2: return "SET2";
         case PAGE_TUNE: return "TUNE";
@@ -649,8 +652,9 @@ static void loadUiSettings() {
         g_touchNavigation = prefs.getBool("touch_nav", false);
         g_batteryHoldEnabled = prefs.getBool("bat_hold", true);
         g_wifiHomeApEnabled = prefs.getBool("wifi_apsta", false);
-        g_connectionMode = prefs.getUChar("conn_mode", CONN_DIRECT_123) == CONN_SPARTAN_GATEWAY ?
-                           CONN_SPARTAN_GATEWAY : CONN_DIRECT_123;
+        uint8_t savedMode = prefs.getUChar("conn_mode", CONN_DIRECT_123);
+        g_connectionMode = savedMode == CONN_SPARTAN_GATEWAY ? CONN_SPARTAN_GATEWAY :
+                           (savedMode == CONN_ESPNOW_BUS ? CONN_ESPNOW_BUS : CONN_DIRECT_123);
         g_espNowEnabled = prefs.getBool("espnow_on", true);
     }
     g_wifiProfile = prefs.getUChar("wifi_prof", 0);
@@ -670,7 +674,7 @@ static void advancePage() {
     // Naechste Page, Gateway-only Pages (SPEED, BAT) ueberspringen im Direct-Modus
     do {
         g_page = static_cast<UiPage>((static_cast<uint8_t>(g_page) + 1) % PAGE_COUNT);
-    } while (g_connectionMode != CONN_SPARTAN_GATEWAY &&
+    } while (g_connectionMode == CONN_DIRECT_123 &&
              (g_page == PAGE_SPEED || g_page == PAGE_BAT || g_page == PAGE_123));
     if (isSettingsPage() && g_settingIndex >= settingCountForPage()) g_settingIndex = 0;
     if (oldPage == PAGE_TUNE && g_tuneArmed && !g_tuneActive) {
@@ -883,7 +887,7 @@ static void handleRoot() {
     html += ".screen-title{position:absolute;top:54px;left:0;right:0;text-align:center;font-size:22px;font-weight:800;color:#efefef}.items{position:absolute;top:78px;left:45px;right:42px;font-size:13px;font-weight:700;line-height:1.35}.item{display:flex;justify-content:space-between;color:#888}.item.sel{color:#f39c12}.on{color:#35d46b}.off{color:#777}.demo{color:#00d7db}.warn{color:#ff453a}.safe{color:#ffab19}.tunestate{position:absolute;top:92px;left:0;right:0;text-align:center;font-size:27px;font-weight:800}.tunehelp{position:absolute;top:128px;left:30px;right:30px;text-align:center;color:#aaa;font-size:13px;font-weight:700}.tunestep{position:absolute;top:164px;left:0;right:0;text-align:center;font-size:56px;font-weight:800}.tunemetric{position:absolute;bottom:28px;left:0;right:0;text-align:center;color:#aaa;font-size:14px;font-weight:700}";
     html += ".hidden{display:none}";
     html += ".red{color:#ff3838}.blue{color:#3aa0ff}.orange{color:#f39c12}";
-    html += "</style></head><body><h2>M5Dial 123Tune</h2><div class='layout'><div class='mirrors'>";
+    html += "</style></head><body><h2>M5Dial 123Tune</h2><p><a href='/mini'>Mini Status</a></p><div class='layout'><div class='mirrors'>";
     html += "<div class='dial'>";
     html += "<div class='top'><span id='ble' class='ble'>" + liveText + "</span><span id='ign' class='ign'>" + ignitionText + "</span><span id='mode' class='mode'>ADV</span></div>";
     html += "<div id='adv' class='adv orange'>0.0</div>";
@@ -939,7 +943,7 @@ static void handleRoot() {
     html += "<label class='select-row'><span>ESP-NOW Kanal</span><select id='ctl_espnow_ch' onchange=\"setUi('esp_now_ch',this.value)\"><option value='0'>Automatisch (folgt WLAN)</option><option value='6'>Bus (Kanal 6 / Spartan3-Setup)</option><option value='11'>Handy-Test (Kanal 11)</option></select></label>";
     html += "<label class='slider-row'><span>Brightness <output id='ctl_bright_value'>" + String(g_brightness) + "</output></span><input id='ctl_bright' type='range' min='40' max='255' step='5' value='" + String(g_brightness) + "' onchange=\"setUi('brightness',this.value)\"></label>";
     html += "<label class='select-row'><span>Rotation</span><select id='ctl_rotation' onchange=\"setUi('rotation',this.value)\"><option value='0'>0 deg</option><option value='90'>90 deg</option><option value='180'>180 deg</option><option value='270'>270 deg</option></select></label>";
-    html += "<label class='select-row'><span>Connection</span><select id='ctl_conn' onchange=\"setUi('connection',this.value)\"><option value='direct'>123 direkt</option><option value='gateway'>Spartan Gateway</option></select></label>";
+    html += "<label class='select-row'><span>Connection</span><select id='ctl_conn' onchange=\"setUi('connection',this.value)\"><option value='direct'>123 direkt</option><option value='gateway'>Hub HTTP</option><option value='espnow'>ESP-NOW Bus</option></select></label>";
     html += "<p id='ui_result' class='ui-result'></p></div></div>";
     html += "<div class='box'><h3>Time</h3>";
     html += "<button onclick=\"fetch('/time_set?epoch='+Math.floor(Date.now()/1000)).then(()=>location.reload())\">Sync from browser</button>";
@@ -1040,7 +1044,7 @@ static void handleState() {
     json += "\"wifi_spartan_preset\":" + String(isSpartanApWifiPreset() ? "true" : "false") + ",";
     json += "\"wifi_profile\":\"" + String(wifiProfileLabel()) + "\",";
     json += "\"hub_host\":\"" + hubPollHost() + "\",";
-    json += "\"connection\":\"" + String(g_connectionMode == CONN_SPARTAN_GATEWAY ? "gateway" : "direct") + "\",";
+    json += "\"connection\":\"" + String(g_connectionMode == CONN_SPARTAN_GATEWAY ? "gateway" : (g_connectionMode == CONN_ESPNOW_BUS ? "espnow" : "direct")) + "\",";
     json += "\"connection_label\":\"" + String(connectionModeLabel()) + "\",";
     json += "\"brightness\":" + String(g_brightness) + ",";
     json += "\"rotation_deg\":" + String(displayRotationDegrees());
@@ -1215,6 +1219,10 @@ static bool gatewayUsesWifiHub() {
     return g_connectionMode == CONN_SPARTAN_GATEWAY && !g_demoMode;
 }
 
+static bool espNowBusOnly() {
+    return g_connectionMode == CONN_ESPNOW_BUS && !g_demoMode;
+}
+
 static bool hubWifiPreferred() {
     return gatewayUsesWifiHub() && WiFi.status() == WL_CONNECTED;
 }
@@ -1246,6 +1254,10 @@ static bool espNowDataFresh() {
     return g_espNowLastRxMs != 0 && (millis() - g_espNowLastRxMs) < kHubFreshMs;
 }
 
+static bool espNowFallbackAllowed() {
+    return !g_espNowEnabled;
+}
+
 static void applyEspNowFrame(const SpartanCockpitFrame& frame) {
     g_espNowSeq = frame.seq;
     const bool lambdaValid = (frame.flags & kSpartanFlagLambdaValid) != 0;
@@ -1253,7 +1265,7 @@ static void applyEspNowFrame(const SpartanCockpitFrame& frame) {
         g_lambda = frame.lambda_x1000 / 1000.0f;
         g_lambdaValid = true;
     }
-    if (g_connectionMode == CONN_SPARTAN_GATEWAY) {
+    if (g_connectionMode == CONN_SPARTAN_GATEWAY || g_connectionMode == CONN_ESPNOW_BUS) {
         g_rpm = frame.rpm;
         g_adv = frame.advance_x10 / 10.0f;
         g_map = frame.map;
@@ -1361,6 +1373,9 @@ static bool hubDataFresh() {
 }
 
 static bool dataLinkOk() {
+#if ENABLE_ESP_NOW_CLIENT
+    if (espNowDataFresh()) return true;
+#endif
     if (hubWifiPreferred() && hubDataFresh()) return true;
     return g_conn;
 }
@@ -1427,7 +1442,7 @@ static bool parseHubStatusJson(const String& json) {
     maybeSyncFromHubJson(json);
 
 #if ENABLE_ESP_NOW_CLIENT
-    if (espNowDataFresh()) {
+    if (!espNowFallbackAllowed()) {
         float value = 0;
         if (jsonNumber(json, "bm6_voltage", value) && value > 0.5f) {
             g_battVolt = value;
@@ -1705,8 +1720,55 @@ static void handleWpsStart() {
     web.send(200, "text/plain", ok ? "WPS started. Press Connect/WPS on FRITZ!Box now." : "WPS start failed");
 }
 
+static void handleMiniStatus() {
+    String html;
+    html.reserve(9000);
+    html += F("<!doctype html><html lang='de'><head><meta charset='utf-8'>"
+              "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+              "<title>M5 Mini Status</title><style>"
+              ":root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#0d0f10;color:#f1efe8;font-family:system-ui,Segoe UI,Arial,sans-serif}"
+              "main{max-width:760px;margin:0 auto;padding:14px}.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}"
+              "h1{font-size:22px;margin:0}.pill{border:1px solid #333;background:#171a1c;border-radius:999px;padding:7px 10px;color:#bbb;text-decoration:none}"
+              ".grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.card{background:#16191b;border:1px solid #303438;border-radius:8px;padding:12px;min-height:86px}"
+              ".wide{grid-column:1/-1}.label{font-size:12px;color:#9ca3aa;text-transform:uppercase;letter-spacing:0}.value{font-size:24px;font-weight:800;margin-top:6px;line-height:1.05}"
+              ".small{font-size:13px;color:#b7bcc0;margin-top:7px}.ok{color:#42d66f}.warn{color:#ffb238}.bad{color:#ff564f}.info{color:#48a8ff}"
+              ".rpm{font-size:46px}.row{display:flex;justify-content:space-between;gap:10px;border-top:1px solid #2b3034;padding-top:9px;margin-top:9px}"
+              "button{width:100%;margin-top:10px;padding:12px;background:#e94b1b;color:white;border:0;border-radius:6px;font-weight:800}"
+              "@media(max-width:520px){main{padding:10px}.grid{gap:8px}.card{padding:10px}.value{font-size:21px}.rpm{font-size:40px}}"
+              "</style></head><body><main><div class='top'><h1>M5 Mini Status</h1><a class='pill' href='/'>WebGUI</a></div>"
+              "<section class='grid'>"
+              "<div class='card wide'><div class='label'>Live</div><div id='live' class='value warn'>Lade...</div><div id='liveSub' class='small'>/state</div></div>"
+              "<div class='card'><div class='label'>RPM</div><div id='rpm' class='value rpm'>--</div><div id='adv' class='small'>ADV --</div></div>"
+              "<div class='card'><div class='label'>Lambda</div><div id='lambda' class='value'>--</div><div id='map' class='small'>MAP --</div></div>"
+              "<div class='card'><div class='label'>WLAN</div><div id='wifi' class='value'>--</div><div id='wifiSub' class='small'>--</div></div>"
+              "<div class='card'><div class='label'>ESP-NOW</div><div id='espnow' class='value'>--</div><div id='espnowSub' class='small'>--</div></div>"
+              "<div class='card'><div class='label'>BLE / Hub</div><div id='ble' class='value'>--</div><div id='bleSub' class='small'>--</div></div>"
+              "<div class='card'><div class='label'>System</div><div id='sys' class='value'>--</div><div id='sysSub' class='small'>--</div></div>"
+              "<div class='card wide'><div class='label'>Schnellcheck</div><div class='row'><span>Daten</span><b id='data'>--</b></div><div class='row'><span>Profil</span><b id='profile'>--</b></div><div class='row'><span>Kanal</span><b id='channel'>--</b></div><button onclick='syncTime()'>Uhr vom Browser setzen</button></div>"
+              "</section></main><script>"
+              "const q=id=>document.getElementById(id);"
+              "function cls(ok,warn){return ok?'ok':(warn?'warn':'bad')}"
+              "function textBool(v){return v?'OK':'AUS'}"
+              "function lambdaClass(d){if(!d.lambda_valid)return 'bad';return d.lambda<0.8?'warn':(d.lambda<1.0?'ok':'warn')}"
+              "async function syncTime(){await fetch('/time_set?epoch='+Math.floor(Date.now()/1000));upd()}"
+              "function paint(d){let link=d.demo||d.data_link||d.ble||d.hub_wifi;"
+              "q('live').textContent=d.demo?'DEMO':(link?'LIVE':'SUCHE');q('live').className='value '+cls(link,d.demo);q('liveSub').textContent='RX '+d.rx+' / Seite '+d.page;"
+              "q('rpm').textContent=d.rpm;q('adv').textContent='ADV '+Number(d.adv).toFixed(1)+' deg';"
+              "q('lambda').textContent=d.lambda_valid?Number(d.lambda).toFixed(2):'--';q('lambda').className='value '+lambdaClass(d);q('map').textContent='MAP '+Number(d.map_bar).toFixed(2)+' bar';"
+              "q('wifi').textContent=d.wifi_ap?'AP an':(d.hub_wifi?'Hub WiFi':'Home/STA');q('wifi').className='value '+cls(d.hub_wifi||d.wifi_ap,true);q('wifiSub').textContent=(d.wifi_profile||'-')+' / Host '+(d.hub_host||'-');"
+              "q('espnow').textContent=d.esp_now_enabled?(d.esp_now_fresh?'RX frisch':'AN'):'AUS';q('espnow').className='value '+(d.esp_now_enabled?(d.esp_now_fresh?'ok':'warn'):'bad');q('espnowSub').textContent='RX '+(d.esp_now_rx||0)+' / Seq '+(d.esp_now_seq||0);"
+              "q('ble').textContent=d.ble?'BLE OK':(d.hub_wifi?'WiFi OK':'Suche');q('ble').className='value '+cls(d.ble||d.hub_wifi,true);q('bleSub').textContent=d.connection_label||'-';"
+              "q('sys').textContent=d.settings_locked?'Fahrt':'Setup';q('sys').className='value '+(d.settings_locked?'warn':'ok');q('sysSub').textContent='Batt '+(d.batt_valid?Number(d.batt_volt).toFixed(2)+'V':'--')+' / Bright '+d.brightness;"
+              "q('data').textContent=textBool(d.data_link);q('data').className=cls(d.data_link,true);q('profile').textContent=d.wifi_profile||'-';q('channel').textContent=d.esp_now_channel_label||d.esp_now_channel||'-';}"
+              "async function upd(){try{let r=await fetch('/state',{cache:'no-store'});let d=await r.json();paint(d)}catch(e){q('live').textContent='OFFLINE';q('live').className='value bad';q('liveSub').textContent=String(e)}}"
+              "upd();setInterval(upd,1500);</script></body></html>");
+    web.sendHeader("Cache-Control", "no-store");
+    web.send(200, "text/html", html);
+}
+
 static void setupWebGui() {
     web.on("/", HTTP_GET, handleRoot);
+    web.on("/mini", HTTP_GET, handleMiniStatus);
     web.on("/state", HTTP_GET, handleState);
     web.on("/ui", HTTP_POST, handleUiSetting);
     web.on("/time_set", HTTP_GET, handleTimeSet);
@@ -2129,13 +2191,14 @@ static void handleUiSetting() {
         pushLog("ESPN ch %s", espNowChannelLabel());
 #endif
     } else if (setting == "connection") {
-        ConnectionMode nextMode = value.equalsIgnoreCase("gateway") || value == "1" ?
-                                  CONN_SPARTAN_GATEWAY : CONN_DIRECT_123;
+        ConnectionMode nextMode = CONN_DIRECT_123;
+        if (value.equalsIgnoreCase("gateway") || value == "1") nextMode = CONN_SPARTAN_GATEWAY;
+        else if (value.equalsIgnoreCase("espnow") || value == "2") nextMode = CONN_ESPNOW_BUS;
         if (nextMode != g_connectionMode) {
             g_connectionMode = nextMode;
             disconnectBleForModeChange();
             pushLog("Conn %s", connectionModeLabel());
-            startScan();
+            if (!espNowBusOnly()) startScan();
         }
     } else {
         web.send(404, "text/plain", "Unknown setting");
@@ -2182,9 +2245,9 @@ static void handleSerialCommand(String line) {
         return;
     }
 
-    if (line.equalsIgnoreCase("conn_gateway") || line.equalsIgnoreCase("conn_direct")) {
-        ConnectionMode nextMode = line.equalsIgnoreCase("conn_gateway") ?
-                                  CONN_SPARTAN_GATEWAY : CONN_DIRECT_123;
+    if (line.equalsIgnoreCase("conn_gateway") || line.equalsIgnoreCase("conn_direct") || line.equalsIgnoreCase("conn_espnow")) {
+        ConnectionMode nextMode = line.equalsIgnoreCase("conn_gateway") ? CONN_SPARTAN_GATEWAY :
+                                  (line.equalsIgnoreCase("conn_espnow") ? CONN_ESPNOW_BUS : CONN_DIRECT_123);
         if (nextMode != g_connectionMode) {
             g_connectionMode = nextMode;
             disconnectBleForModeChange();
@@ -2548,7 +2611,7 @@ class ClientCB : public NimBLEClientCallbacks {
         pGatewayCmd = nullptr;
         pushLog("Disc reason=%d", reason);
         beep(BEEP_ERROR);
-        if (!g_demoMode && !gatewayUsesWifiHub()) startScan();
+        if (!g_demoMode && !gatewayUsesWifiHub() && !espNowBusOnly()) startScan();
     }
     bool onConnParamsUpdateRequest(NimBLEClient*, const ble_gap_upd_params* p) override {
         pushLog("ParaReq %u-%u L%u T%u",
@@ -2563,6 +2626,7 @@ class ClientCB : public NimBLEClientCallbacks {
 class ScanCB : public NimBLEScanCallbacks {
     void onResult(const NimBLEAdvertisedDevice* dev) override {
         if (g_demoMode && g_connectionMode == CONN_DIRECT_123) return;
+        if (espNowBusOnly()) return;
         String addr = dev->getAddress().toString().c_str();
         addr.toLowerCase();
         bool matched = false;
@@ -2581,7 +2645,7 @@ class ScanCB : public NimBLEScanCallbacks {
         }
     }
     void onScanEnd(const NimBLEScanResults&, int reason) override {
-        if (gatewayUsesWifiHub()) return;
+        if (gatewayUsesWifiHub() || espNowBusOnly()) return;
         if ((g_demoMode && g_connectionMode == CONN_DIRECT_123) || g_conn || doConnect) return;
         pushLog("Scan Ende r=%d", reason);
         scheduleScanRetry();
@@ -2592,7 +2656,7 @@ static ClientCB clientCB;
 static ScanCB   scanCB;
 
 static void startScan() {
-    if (gatewayUsesWifiHub()) return;
+    if (gatewayUsesWifiHub() || espNowBusOnly()) return;
     if ((g_demoMode && g_connectionMode == CONN_DIRECT_123) || g_conn || doConnect) return;
     g_nextScanAt = 0;
     pushLog("Scan 10s...");
@@ -2608,7 +2672,7 @@ static void startScan() {
 }
 
 static void serviceScanRetry() {
-    if (gatewayUsesWifiHub()) return;
+    if (gatewayUsesWifiHub() || espNowBusOnly()) return;
     if ((g_demoMode && g_connectionMode == CONN_DIRECT_123) || g_conn || doConnect || g_nextScanAt == 0) return;
     if (static_cast<int32_t>(millis() - g_nextScanAt) >= 0) {
         startScan();
@@ -2972,27 +3036,34 @@ static void connectBLE() {
 // Status bar top: shifted down to stay inside the visible round display area.
 static void drawStatus() {
     display.fillRect(0, 0, 240, 44, TFT_BLACK);
-    display.setFont(&fonts::FreeSans9pt7b);
+    display.setFont(&fonts::Font2);
 
     const bool wifiLink = hubWifiPreferred() && hubDataFresh();
+#if ENABLE_ESP_NOW_CLIENT
+    const bool espLink = espNowDataFresh();
+#else
+    const bool espLink = false;
+#endif
     const bool linkOk = dataLinkOk();
     const char* topStatus;
     if (g_demoMode) topStatus = "DEMO";
-    else if (linkOk) topStatus = wifiLink ? "WiFi OK" : "BLE OK";
+    else if (linkOk) topStatus = espLink ? "ESP OK" : (wifiLink ? "WiFi OK" : "BLE OK");
     else if (gatewayUsesWifiHub()) topStatus = hubWifiPreferred() ? "Hub..." : "WiFi...";
+    else if (espNowBusOnly()) topStatus = "ESP...";
     else topStatus = "Suche...";
     display.setTextDatum(ML_DATUM);
     display.setTextColor(g_demoMode ? (uint32_t)TFT_CYAN :
                          (linkOk ? (uint32_t)TFT_GREEN : (uint32_t)TFT_RED));
-    display.drawString(topStatus, 66, 20);
+    display.drawString(topStatus, 58, 15);
 
     display.setTextColor(g_demoMode ? (uint32_t)TFT_CYAN : (uint32_t)0x404040);
     char buf[16];
     if (g_demoMode) snprintf(buf, sizeof(buf), "SIM TEST");
     else snprintf(buf, sizeof(buf), "%s #%lu",
-                  g_connectionMode == CONN_SPARTAN_GATEWAY ? "GW" : "IGN",
+                  g_connectionMode == CONN_SPARTAN_GATEWAY ? "HTTP" :
+                  (g_connectionMode == CONN_ESPNOW_BUS ? "ESPN" : "IGN"),
                   (unsigned long)g_rxCnt);
-    display.drawString(buf, 66, 34);
+    display.drawString(buf, 58, 32);
 
     display.setTextDatum(MR_DATUM);
     if (g_tuneActive) {
@@ -3001,10 +3072,10 @@ static void drawStatus() {
                                                (uint32_t)TFT_ORANGE);
         char tuneBuf[18];
         snprintf(tuneBuf, sizeof(tuneBuf), "T%+d", g_tuneSteps);
-        display.drawString(tuneBuf, 184, 27);
+        display.drawString(tuneBuf, 212, 15);
     } else {
         display.setTextColor(g_tuneArmed ? (uint32_t)TFT_ORANGE : (uint32_t)0x303030);
-        display.drawString(pageName(), 184, 27);
+        display.drawString(pageName(), 212, 15);
     }
 }
 
@@ -3325,6 +3396,36 @@ static void draw123Page() {
     display.drawString(buf, 210, y);
 }
 
+static void drawStatusPage() {
+    display.fillScreen(TFT_BLACK);
+    display.setTextDatum(MC_DATUM);
+    display.setFont(&fonts::Font2);
+    display.setTextColor(TFT_WHITE);
+    display.drawString("STATUS", 120, 26);
+
+    display.setFont(&fonts::Font2);
+    int y = 48;
+    auto row = [&](const char* label, const String& value, uint32_t color) {
+        display.setTextDatum(ML_DATUM);
+        display.setTextColor(TFT_DARKGREY);
+        display.drawString(label, 24, y);
+        display.setTextDatum(MR_DATUM);
+        display.setTextColor(color);
+        display.drawString(value, 216, y);
+        y += 18;
+    };
+
+    row("IP", wifiIpLabel(), WiFi.status() == WL_CONNECTED ? (uint32_t)TFT_GREEN : (uint32_t)TFT_ORANGE);
+    row("WLAN", wifiModeLabel(), WiFi.status() == WL_CONNECTED ? (uint32_t)TFT_GREEN : (uint32_t)TFT_DARKGREY);
+    row("SSID", WiFi.status() == WL_CONNECTED ? WiFi.SSID() : String(wifiProfileLabel()), TFT_WHITE);
+    row("HUB", hubPollHost(), g_hubWifiOk ? (uint32_t)TFT_GREEN : (uint32_t)TFT_ORANGE);
+    row("ESP-NOW", String(espNowChannelLabel()), espNowDataFresh() ? (uint32_t)TFT_GREEN :
+        (g_espNowEnabled ? (uint32_t)TFT_ORANGE : (uint32_t)TFT_DARKGREY));
+    row("RX", String((unsigned long)g_rxCnt) + " / " + String((unsigned long)g_espNowRx), dataLinkOk() ? (uint32_t)TFT_GREEN : (uint32_t)TFT_DARKGREY);
+    row("MODE", connectionModeLabel(), TFT_SKYBLUE);
+    row("TIME", localTimestamp(), g_timeValid ? (uint32_t)TFT_WHITE : (uint32_t)TFT_DARKGREY);
+}
+
 static void drawSettings() {
     const bool systemPage = g_page == PAGE_SETTINGS2;
     const char* labelsMain[] = { "Buzzer", "Button tone", "BLE tone", "Error tone", "Touch nav", "Demo mode", "Conn" };
@@ -3486,10 +3587,11 @@ static void activateSetting() {
             else startDemoMode();
             break;
         case 6:
-            g_connectionMode = g_connectionMode == CONN_SPARTAN_GATEWAY ? CONN_DIRECT_123 : CONN_SPARTAN_GATEWAY;
+            g_connectionMode = g_connectionMode == CONN_DIRECT_123 ? CONN_SPARTAN_GATEWAY :
+                               (g_connectionMode == CONN_SPARTAN_GATEWAY ? CONN_ESPNOW_BUS : CONN_DIRECT_123);
             disconnectBleForModeChange();
             pushLog("Conn %s", connectionModeLabel());
-            startScan();
+            if (!espNowBusOnly()) startScan();
             break;
     }
     saveUiSettings();
@@ -3624,6 +3726,8 @@ void setup() {
     NimBLEDevice::setMTU(23);
     if (g_connectionMode == CONN_SPARTAN_GATEWAY) {
         pushLog("GW WiFi poll");
+    } else if (g_connectionMode == CONN_ESPNOW_BUS) {
+        pushLog("ESP-NOW Bus only");
     } else {
         pushLog("Fahrt: 123 BLE");
         if (g_espNowEnabled) {
@@ -3632,7 +3736,7 @@ void setup() {
         startScan();
     }
 #if ENABLE_ESP_NOW_CLIENT
-    if (g_espNowEnabled && g_connectionMode == CONN_SPARTAN_GATEWAY) {
+    if (g_espNowEnabled && (g_connectionMode == CONN_SPARTAN_GATEWAY || g_connectionMode == CONN_ESPNOW_BUS)) {
         pushLog("ESP-NOW Bus ch%d", ESP_NOW_WIFI_CHANNEL);
     }
 #endif
@@ -3694,7 +3798,8 @@ void loop() {
         appendLiveCsv();
     }
 
-    if (g_page != PAGE_LAMBDA && g_page != PAGE_SPEED && g_page != PAGE_BAT && g_page != PAGE_123) drawStatus();
+    if (g_page != PAGE_LAMBDA && g_page != PAGE_SPEED && g_page != PAGE_BAT
+        && g_page != PAGE_123 && g_page != PAGE_STATUS) drawStatus();
     if (!g_demoMode && g_rxCnt == 0 && (g_page == PAGE_MAIN || g_page == PAGE_AUX)) {
         drawLog();
     } else if (g_page == PAGE_MAIN) {
@@ -3709,6 +3814,8 @@ void loop() {
         drawSpeedPage();
     } else if (g_page == PAGE_BAT) {
         drawBatPage();
+    } else if (g_page == PAGE_STATUS) {
+        drawStatusPage();
     } else if (isSettingsPage()) {
         drawSettings();
     } else {
