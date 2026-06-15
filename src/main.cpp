@@ -825,6 +825,8 @@ static void sendLogFile(const char* path, const char* downloadName) {
 }
 
 static String wifiModeLabel() {
+    if (WiFi.status() == WL_CONNECTED && WiFi.SSID() == kSpartanApSsid && g_wifiAp) return "Bus WiFi + AP";
+    if (WiFi.status() == WL_CONNECTED && WiFi.SSID() == kSpartanApSsid) return "Bus WiFi";
     if (WiFi.status() == WL_CONNECTED && g_wifiAp) return "Home WiFi + AP";
     if (WiFi.status() == WL_CONNECTED) return "Home WiFi";
     if (g_wifiAp) return "Setup AP";
@@ -1913,6 +1915,10 @@ static void setupWifi() {
     loadUiSettings();
     seedWifiProfilePasswords();
     syncWifiProfileFromSavedSsid();
+    if (g_connectionMode == CONN_ESPNOW_BUS && !isSpartanApWifiPreset()) {
+        applyBusProfile(false);
+        pushLog("ESP-NOW -> Bus WiFi");
+    }
     WiFi.onEvent(onWifiEvent);
     WiFi.setHostname("m5dial-123");
     WiFi.mode(g_wifiHomeApEnabled ? WIFI_AP_STA : WIFI_STA);
