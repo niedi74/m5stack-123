@@ -616,7 +616,7 @@ static void syncWifiProfileFromSavedSsid() {
     }
 }
 
-static void applyWifiProfile(uint8_t idx, bool reboot);
+static bool applyWifiProfile(uint8_t idx, bool reboot);
 static void applyBusProfile(bool reboot);
 static const char* wifiProfileLabel();
 static String hubPollHost();
@@ -879,6 +879,7 @@ static void handleRoot() {
     html += "a,button{display:inline-block;margin:6px 8px 6px 0;padding:10px 12px;background:#e94b1b;color:white;text-decoration:none;border:0;border-radius:4px}";
     html += "input{display:block;margin:6px 0 12px;padding:10px;width:min(360px,90vw)}";
     html += ".muted{color:#aaa}.box{border:1px solid #333;padding:14px;margin:0 0 14px;max-width:560px}";
+    html += ".wifi-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;margin:10px 0}.wifi-actions button{width:100%;margin:0;min-height:46px}.wifi-form button{width:min(360px,90vw);margin-top:0}";
     html += ".controls{display:grid;gap:10px;max-width:400px}.toggle-row,.select-row{display:flex;align-items:center;justify-content:space-between;gap:18px}.toggle-row input{width:22px;height:22px;margin:0;padding:0;accent-color:#e94b1b}.slider-row{display:grid;gap:4px}.slider-row span{display:flex;justify-content:space-between}.slider-row input{box-sizing:border-box;width:100%;margin:0;padding:0;accent-color:#e94b1b}.select-row select{padding:7px 9px;background:#1c1c1c;color:#eee;border:1px solid #444;border-radius:4px}.ui-result{min-height:20px;margin:0;color:#e94b1b}";
     html += ".dial{width:min(82vw,320px);aspect-ratio:1;border-radius:50%;background:#050505;margin:4px 0 18px;position:relative;border:10px solid #242424;box-shadow:inset 0 0 38px #1d2830,0 0 16px #000;color:#ddd;overflow:hidden}";
     html += ".top{position:absolute;top:28px;left:0;right:0;font-size:14px;font-weight:700}.ble{position:absolute;left:72px;color:#2577ff}.ign{position:absolute;left:72px;top:16px;color:#e93b2f}.mode{position:absolute;right:72px;color:#3e75ff}";
@@ -956,16 +957,21 @@ static void handleRoot() {
     html += "<a href='/download'>Download current CSV</a><a href='/download_old'>Download old CSV</a><a href='/clear'>Clear current log</a></div>";
     html += "<div class='box'><h3>WLAN Profile</h3>";
     html += "<p class='muted'>Hub-Daten via HTTP /api/status. Gateway-Modus + Hub-Host automatisch (.87 zu Hause, .4.1 im Bus).</p>";
+    html += "<div class='wifi-actions'>";
     const uint8_t profCount = wifiProfileCount();
     for (uint8_t i = 0; i < profCount; i++) {
-        html += "<button onclick=\"fetch('/wifi_prof?idx=" + String(i) + "',{method:'POST'}).then(r=>r.text()).then(t=>{document.getElementById('wifi_result').textContent=t})\">";
+        html += "<button type='button' onclick=\"fetch('/wifi_prof?idx=" + String(i) + "',{method:'POST'}).then(r=>r.text()).then(t=>{document.getElementById('wifi_result').textContent=t})\">";
         html += String(WIFI_PROFILES[i].label) + " (" + String(WIFI_PROFILES[i].ssid) + ")</button> ";
     }
-    html += "<form action='/wifi' method='get'>";
+    html += "</div>";
+    html += "<form class='wifi-form' action='/wifi' method='get'>";
     html += "<input name='ssid' placeholder='SSID'><input name='pass' placeholder='Password' type='password'>";
     html += "<button type='submit'>Manuell speichern + reboot</button></form>";
-    html += "<button onclick=\"fetch('/wifi_spartan',{method:'POST'}).then(r=>r.text()).then(t=>{document.getElementById('wifi_result').textContent=t;setTimeout(()=>location.href='http://192.168.4.2/',2500)})\">Bus (Spartan3-Setup)</button>";
-    html += "<button onclick=\"fetch('/wifi_dhcp',{method:'POST'}).then(r=>r.text()).then(t=>{document.getElementById('wifi_result').textContent=t})\">Home wiederherstellen</button>";
+    html += "<div class='wifi-actions'>";
+    html += "<button type='button' onclick=\"fetch('/wifi_spartan',{method:'POST'}).then(r=>r.text()).then(t=>{document.getElementById('wifi_result').textContent=t;setTimeout(()=>location.href='http://192.168.4.2/',2500)})\">Bus (Spartan3-Setup)</button>";
+    html += "<button type='button' onclick=\"fetch('/wifi_dhcp',{method:'POST'}).then(r=>r.text()).then(t=>{document.getElementById('wifi_result').textContent=t})\">Zuhause wiederherstellen</button>";
+    html += "<button type='button' onclick=\"fetch('/wifi_setup_ap',{method:'POST'}).then(r=>r.text()).then(t=>{document.getElementById('wifi_result').textContent=t;setTimeout(()=>location.href='http://192.168.4.1/',1200)})\">Setup-AP einschalten</button>";
+    html += "</div>";
     html += "<p id='wifi_result' class='muted'></p>";
     html += "<a href='/wps'>Start WPS</a>";
     html += "<p class='muted'>WPS: first click Start WPS here, then press Connect/WPS on the FRITZ!Box.</p>";
@@ -1114,9 +1120,9 @@ static const char* wifiProfileLabel() {
     return WIFI_PROFILES[g_wifiProfile].label;
 }
 
-static void applyWifiProfile(uint8_t idx, bool reboot) {
+static bool applyWifiProfile(uint8_t idx, bool reboot) {
     const uint8_t count = wifiProfileCount();
-    if (count == 0 || idx >= count) return;
+    if (count == 0 || idx >= count) return false;
 
     g_wifiProfile = idx;
     prefs.putUChar("wifi_prof", idx);
@@ -1128,7 +1134,7 @@ static void applyWifiProfile(uint8_t idx, bool reboot) {
         const String pass = wifiProfilePassword(profile);
         if (pass.length() == 0) {
             pushLog("WiFi %s: kein Pass", profile.label);
-            return;
+            return false;
         }
         backupCurrentWifiPresetIfNeeded();
         prefs.putString("ssid", profile.ssid);
@@ -1149,13 +1155,14 @@ static void applyWifiProfile(uint8_t idx, bool reboot) {
         delay(300);
         ESP.restart();
     }
+    return true;
 }
 
 static void applyBusProfile(bool reboot) {
     const uint8_t count = wifiProfileCount();
     for (uint8_t i = 0; i < count; i++) {
         if (strcmp(WIFI_PROFILES[i].ssid, kSpartanApSsid) == 0) {
-            applyWifiProfile(i, reboot);
+            (void)applyWifiProfile(i, reboot);
             return;
         }
     }
@@ -1610,7 +1617,10 @@ static void handleSpartanWifiPreset() {
         web.send(409, "text/plain", "Spartan AP preset blocked while RPM > 650");
         return;
     }
-    applyBusProfile(true);
+    applyBusProfile(false);
+    web.send(200, "text/plain", "Bus WiFi saved. Rebooting...");
+    delay(500);
+    ESP.restart();
 }
 
 static void handleWifiProfile() {
@@ -1623,7 +1633,14 @@ static void handleWifiProfile() {
         return;
     }
     const uint8_t idx = (uint8_t)web.arg("idx").toInt();
-    applyWifiProfile(idx, true);
+    const bool ok = applyWifiProfile(idx, false);
+    if (!ok) {
+        web.send(409, "text/plain", "WiFi profile has no password. Save SSID/password manually first.");
+        return;
+    }
+    web.send(200, "text/plain", "WiFi profile saved. Rebooting...");
+    delay(500);
+    ESP.restart();
 }
 
 static void handleWifiDhcpMode() {
@@ -1638,6 +1655,18 @@ static void handleWifiDhcpMode() {
     web.send(200, "text/plain", "Home WiFi restored. Rebooting...");
     delay(500);
     ESP.restart();
+}
+
+static void handleWifiSetupAp() {
+    if (wifiSetupBlockedWhileDriving()) {
+        web.send(409, "text/plain", "Setup AP blocked while RPM > 650");
+        return;
+    }
+    if (!startSetupAp(false)) {
+        web.send(500, "text/plain", "Setup AP could not be started");
+        return;
+    }
+    web.send(200, "text/plain", "Setup AP active: M5Dial-123-Setup / http://192.168.4.1/");
 }
 
 static void handleClearLog() {
@@ -1778,6 +1807,7 @@ static void setupWebGui() {
     web.on("/wifi_spartan", HTTP_POST, handleSpartanWifiPreset);
     web.on("/wifi_prof", HTTP_POST, handleWifiProfile);
     web.on("/wifi_dhcp", HTTP_POST, handleWifiDhcpMode);
+    web.on("/wifi_setup_ap", HTTP_POST, handleWifiSetupAp);
     web.on("/wps", HTTP_GET, handleWpsStart);
     web.on("/clear", HTTP_GET, handleClearLog);
     web.on("/download", HTTP_GET, []() { sendLogFile(LOG_FILE, "m5dial_123tune_drive.csv"); });
