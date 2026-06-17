@@ -61,7 +61,9 @@ static LGFX_Sprite sprBot(&display);
 static const char* NUS_SVC = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 static const char* NUS_RX  = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 static const char* NUS_TX  = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
-static const char* TARGET  = "ef:a8:b2:de:e0:9e";
+static const char* TARGET  = "ef:a8:b2:de:e0:9e";  // Default-123-MAC
+static String g_targetMac = TARGET;                // per BLE-Scan waehlbar (NVS)
+static volatile bool g_discoveryScan = false;      // true = nur listen, nicht verbinden
 static const char* SPARTAN_NAME = "Spartan3-Hub";
 static const char* SPARTAN_SVC = "7f510001-5a6b-4d2a-9f20-14a7f3e20000";
 static const char* SPARTAN_STATUS = "7f510002-5a6b-4d2a-9f20-14a7f3e20000";
@@ -971,6 +973,7 @@ static void handleRoot() {
     html += "<label class='slider-row'><span>Brightness <output id='ctl_bright_value'>" + String(g_brightness) + "</output></span><input id='ctl_bright' type='range' min='40' max='255' step='5' value='" + String(g_brightness) + "' onchange=\"setUi('brightness',this.value)\"></label>";
     html += "<label class='select-row'><span>Rotation</span><select id='ctl_rotation' onchange=\"setUi('rotation',this.value)\"><option value='0'>0 deg</option><option value='90'>90 deg</option><option value='180'>180 deg</option><option value='270'>270 deg</option></select></label>";
     html += "<label class='select-row'><span>Connection</span><select id='ctl_conn' onchange=\"setUi('connection',this.value)\"><option value='direct'>123 direkt</option><option value='gateway'>Hub HTTP</option><option value='espnow'>ESP-NOW Bus</option></select></label>";
+    html += "<div style='margin:6px 0'>123-Ziel: <b>" + g_targetMac + "</b> &middot; <a href='/blescan' style='color:#9bd1ff'>per BLE-Scan waehlen</a></div>";
     html += "<p id='ui_result' class='ui-result'></p></div></div>";
     html += "<div class='box'><h3>Time</h3>";
     html += "<button onclick=\"fetch('/time_set?epoch='+Math.floor(Date.now()/1000)).then(()=>location.reload())\">Sync from browser</button>";
@@ -1884,8 +1887,61 @@ static void handleMiniStatus() {
     web.send(200, "text/html", html);
 }
 
+// BLE-Scan: 3s listen, Geraete mit Auswahl-Link anzeigen.
+static void handleBleScan() {
+    g_discoveryScan = true;
+    auto* s = NimBLEDevice::getScan();
+    s->setActiveScan(true);
+    s->setInterval(100);
+    s->setWindow(99);
+    s->clearResults();
+    NimBLEScanResults results = s->getResults(3000, false);   // blockt 3s
+    g_discoveryScan = false;
+    String html = F("<!doctype html><html><head><meta charset=utf-8>"
+        "<meta name=viewport content='width=device-width,initial-scale=1'><title>123 BLE Scan</title>"
+        "<style>body{font-family:system-ui;background:#111;color:#eee;margin:14px}"
+        "table{width:100%;border-collapse:collapse}td,th{padding:8px;border-bottom:1px solid #333;text-align:left}"
+        "a.sel{background:#e94b1b;color:#fff;border-radius:6px;padding:7px 11px;text-decoration:none}"
+        "a.lnk{color:#9bd1ff}.cur{color:#54d273}</style></head><body><h2>123 BLE Scan</h2>");
+    html += "<p>Aktuelles Ziel: <b class=cur>" + g_targetMac + "</b> &middot; "
+            "<a class=lnk href='/'>zurueck</a> &middot; <a class=lnk href='/blescan'>neu scannen</a></p>";
+    html += "<table><tr><th>Name</th><th>MAC</th><th>RSSI</th><th>NUS</th><th></th></tr>";
+    for (int i = 0; i < results.getCount(); i++) {
+        const NimBLEAdvertisedDevice* d = results.getDevice(i);
+        String mac = d->getAddress().toString().c_str(); mac.toLowerCase();
+        String name = d->getName().c_str();
+        const bool nus = d->isAdvertisingService(NimBLEUUID(NUS_SVC));
+        html += "<tr><td>" + (name.length() ? name : String("---")) + "</td><td>" + mac +
+                "</td><td>" + String(d->getRSSI()) + "</td><td>" + (nus ? "ja" : "-") +
+                "</td><td><a class=sel href='/bleselect?mac=" + mac + "'>waehlen</a></td></tr>";
+    }
+    html += "</table></body></html>";
+    web.send(200, "text/html", html);
+}
+
+static void handleBleSelect() {
+    if (web.hasArg("mac")) {
+        String mac = web.arg("mac"); mac.trim(); mac.toLowerCase();
+        if (mac.length() == 17) {
+            g_targetMac = mac;
+            prefs.putString("tune_mac", g_targetMac);
+            if (pClient && pClient->isConnected()) pClient->disconnect();
+            g_conn = false;
+            doConnect = false;
+            startScan();
+            pushLog("123 Ziel: %s", g_targetMac.c_str());
+        }
+    }
+    web.sendHeader("Location", "/blescan", true);
+    web.send(303, "text/plain", "");
+}
+
 static void setupWebGui() {
+    g_targetMac = prefs.getString("tune_mac", TARGET);
+    g_targetMac.toLowerCase();
     web.on("/", HTTP_GET, handleRoot);
+    web.on("/blescan", HTTP_GET, handleBleScan);
+    web.on("/bleselect", HTTP_GET, handleBleSelect);
     web.on("/mini", HTTP_GET, handleMiniStatus);
     web.on("/state", HTTP_GET, handleState);
     web.on("/ui", HTTP_POST, handleUiSetting);
@@ -2760,12 +2816,31 @@ class ScanCB : public NimBLEScanCallbacks {
         if (espNowBusOnly()) return;
         String addr = dev->getAddress().toString().c_str();
         addr.toLowerCase();
+        // nRF-artiger Scanner-Log: Name + Hersteller(Company+Daten) + RSSI.
+        {
+            String nm = dev->getName().c_str();
+            String mfg = "-";
+            if (dev->haveManufacturerData()) {
+                std::string m = dev->getManufacturerData();
+                if (m.size() >= 2) {
+                    uint16_t comp = (uint8_t)m[0] | ((uint16_t)(uint8_t)m[1] << 8);
+                    char cb[12]; snprintf(cb, sizeof(cb), "C%u:", comp); mfg = cb;
+                    for (size_t i = 2; i < m.size() && i < 16; i++) {
+                        char h[3]; snprintf(h, sizeof(h), "%02X", (uint8_t)m[i]); mfg += h;
+                    }
+                }
+            }
+            Serial.printf("[BLE-SCAN] %s rssi=%d name=%s mfg=%s\n",
+                          addr.c_str(), dev->getRSSI(),
+                          nm.length() ? nm.c_str() : "---", mfg.c_str());
+        }
+        if (g_discoveryScan) return;   // manueller Scan: nur listen, nicht verbinden
         bool matched = false;
         if (g_connectionMode == CONN_SPARTAN_GATEWAY) {
             String name = dev->getName().c_str();
             matched = name == SPARTAN_NAME || dev->isAdvertisingService(NimBLEUUID(SPARTAN_SVC));
         } else {
-            matched = addr == TARGET;
+            matched = addr.equalsIgnoreCase(g_targetMac);   // gewaehlte 123-MAC
         }
         if (matched) {
             targetAddr = dev->getAddress();
