@@ -1724,7 +1724,7 @@ static void initWpsConfig() {
     strncpy(wpsConfig.factory_info.manufacturer, "M5Stack", sizeof(wpsConfig.factory_info.manufacturer) - 1);
     strncpy(wpsConfig.factory_info.model_number, "M5Dial", sizeof(wpsConfig.factory_info.model_number) - 1);
     strncpy(wpsConfig.factory_info.model_name, "M5Dial 123Tune", sizeof(wpsConfig.factory_info.model_name) - 1);
-    strncpy(wpsConfig.factory_info.device_name, "m5dial-123", sizeof(wpsConfig.factory_info.device_name) - 1);
+    strncpy(wpsConfig.factory_info.device_name, "esp-m5dial", sizeof(wpsConfig.factory_info.device_name) - 1);
 }
 
 static void stopWps() {
@@ -1990,7 +1990,7 @@ static void setupWifi() {
         pushLog("ESP-NOW -> Bus WiFi");
     }
     WiFi.onEvent(onWifiEvent);
-    WiFi.setHostname("m5dial-123");
+    WiFi.setHostname("esp-m5dial");
     WiFi.mode(g_wifiHomeApEnabled ? WIFI_AP_STA : WIFI_STA);
 
     String ssid = prefs.getString("ssid", "");
