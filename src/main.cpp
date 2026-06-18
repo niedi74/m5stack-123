@@ -990,7 +990,7 @@ static void handleRoot() {
     html += "if(!d.lambda_valid){lambda.style.color='#666'}else if(d.lambda<0.8){lambda.style.color='#ffd54a'}else if(d.lambda<0.9){lambda.style.color='#35d46b'}else if(d.lambda<1.0){lambda.style.color='#f39c12'}else{lambda.style.color='#ff3838'};";
     html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);yn('demomode',d.demo);if(d.demo)demomode.className='demo';yn('bathold',d.battery_hold);yn('wifiapsta',d.wifi_home_ap);yn('espnowon',d.esp_now_enabled);bright.textContent=d.brightness;rotation.textContent=d.rotation_deg+' deg';connmode.textContent=d.connection_label;wifipreset.textContent=d.wifi_profile||'Home';if(document.getElementById('espnowch'))espnowch.textContent=d.esp_now_channel_label||'-';";
     html += "ctl_buzzer.checked=d.buzzer;ctl_button.checked=d.beep_actions;ctl_ble.checked=d.beep_ble;ctl_error.checked=d.beep_errors;ctl_touch.checked=d.touch_nav;ctl_demo.checked=d.demo;ctl_bathold.checked=d.battery_hold;ctl_wifiapsta.checked=d.wifi_home_ap;ctl_espnow.checked=d.esp_now_enabled;ctl_espnow_ch.value=String(d.esp_now_channel_pref||0);ctl_bright.value=d.brightness;ctl_bright_value.textContent=d.brightness;ctl_rotation.value=String(d.rotation_deg);ctl_conn.value=d.connection;";
-    html += "ctl_buzzer.disabled=d.settings_locked&&!d.buzzer;ctl_button.disabled=d.settings_locked&&!d.beep_actions;ctl_ble.disabled=d.settings_locked&&!d.beep_ble;ctl_error.disabled=d.settings_locked&&!d.beep_errors;ctl_touch.disabled=d.settings_locked&&!d.touch_nav;ctl_demo.disabled=d.settings_locked&&!d.demo;ctl_bathold.disabled=d.settings_locked;ctl_wifiapsta.disabled=d.settings_locked;ctl_espnow.disabled=d.settings_locked&&!d.esp_now_enabled;ctl_espnow_ch.disabled=d.settings_locked;ctl_bright.disabled=d.settings_locked;ctl_rotation.disabled=d.settings_locked;ctl_conn.disabled=d.settings_locked;";
+    html += "ctl_buzzer.disabled=d.settings_locked&&!d.buzzer;ctl_button.disabled=d.settings_locked&&!d.beep_actions;ctl_ble.disabled=d.settings_locked&&!d.beep_ble;ctl_error.disabled=d.settings_locked&&!d.beep_errors;ctl_touch.disabled=d.settings_locked&&!d.touch_nav;ctl_demo.disabled=d.settings_locked&&!d.demo;ctl_bathold.disabled=d.settings_locked;ctl_wifiapsta.disabled=d.settings_locked;ctl_espnow.disabled=d.settings_locked&&!d.esp_now_enabled;ctl_espnow_ch.disabled=false;ctl_bright.disabled=false;ctl_rotation.disabled=false;ctl_conn.disabled=false;";
     html += "for(let i=0;i<7;i++)document.getElementById('set'+i).className='item '+(d.page=='SET'&&i==d.setting_index?'sel':'');";
     html += "for(let i=0;i<7;i++){let e=document.getElementById('sys'+i);if(e)e.className='item '+(d.page=='SET2'&&i==d.setting_index?'sel':'');}";
     html += "tunetitle.textContent=d.demo?'DEMO TUNE':'LIVE TUNE';tunetitle.className='screen-title '+(d.demo?'demo':'warn');";
@@ -2156,6 +2156,10 @@ static void handleUiSetting() {
         web.send(400, "text/plain", "Invalid ON/OFF value");
         return;
     }
+    bool allowWhileDriving = setting == "brightness" ||
+                             setting == "rotation" ||
+                             setting == "esp_now_ch" ||
+                             setting == "connection";
     if (wifiSetupBlockedWhileDriving() && setting == "battery_hold") {
         web.send(409, "text/plain", "Battery power setting locked while RPM > 650");
         return;
@@ -2164,11 +2168,7 @@ static void handleUiSetting() {
         web.send(409, "text/plain", "WiFi AP mode locked while RPM > 650");
         return;
     }
-    if (wifiSetupBlockedWhileDriving() && setting == "connection") {
-        web.send(409, "text/plain", "Connection mode locked while RPM > 650");
-        return;
-    }
-    if (wifiSetupBlockedWhileDriving() && (!isFlag || enabled)) {
+    if (wifiSetupBlockedWhileDriving() && !allowWhileDriving && (!isFlag || enabled)) {
         web.send(409, "text/plain", "Controls locked while RPM > 650; OFF remains available");
         return;
     }
