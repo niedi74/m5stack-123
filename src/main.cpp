@@ -197,16 +197,18 @@ static uint8_t espNowEffectiveChannel();
 static uint8_t           g_wifiProfile = 0;
 
 struct WifiProfile {
-    const char* ssid;
-    const char* passKey;  // NVS key for password (nullptr = use pass field)
-    const char* pass;
+    char ssid[33];          // NVS-editierbar (Slot 0+1), Bus fest
+    const char* passKey;    // NVS key for password (nullptr = use pass field)
+    const char* pass;       // festes Passwort (Bus)
     const char* label;
 };
 
-static const WifiProfile WIFI_PROFILES[] = {
-    { "Android-AP1", "prof_phone_pass", nullptr, "Handy" },
-    { "Z00-Station", "prof_home_pass", nullptr, "Zuhause" },
-    { "Spartan3-Setup", nullptr, "lambda123", "BUS (Spartan Hub)" },
+// SSIDs werden beim Boot aus NVS geladen (prof_phone_ssid, prof_home_ssid)
+// Fallback: compile-time Defaults
+static WifiProfile WIFI_PROFILES[] = {
+    { "Android-AP1",  "prof_phone_pass", nullptr,    "Handy"           },
+    { "Z00-Station",  "prof_home_pass",  nullptr,    "Zuhause"         },
+    { "Spartan3-Setup", nullptr,         "lambda123", "BUS (Spartan Hub)" },
 };
 
 static String wifiProfilePassword(const WifiProfile& profile);
@@ -1003,6 +1005,16 @@ static void handleRoot() {
     html += "<button type='button' onclick=\"fetch('/wifi_setup_ap',{method:'POST'}).then(r=>r.text()).then(t=>{document.getElementById('wifi_result').textContent=t;setTimeout(()=>location.href='http://192.168.4.1/',1200)})\">Setup-AP einschalten</button>";
     html += "</div>";
     html += "<p id='wifi_result' class='muted'></p>";
+    html += "<details style='margin:8px 0'><summary>Profile bearbeiten</summary>";
+    for (uint8_t i = 0; i < 2; i++) {  // nur Handy(0) und Zuhause(1), nicht Bus(2)
+        html += "<form action='/wifi_profile_save' method='post' style='margin:4px 0'>";
+        html += "<input type='hidden' name='slot' value='" + String(i) + "'>";
+        html += "<b>" + String(WIFI_PROFILES[i].label) + ":</b> ";
+        html += "<input name='ssid' value='" + String(WIFI_PROFILES[i].ssid) + "' placeholder='SSID' size='18'> ";
+        html += "<input name='pass' type='password' placeholder='Passwort' size='14'> ";
+        html += "<button type='submit'>Speichern</button></form>";
+    }
+    html += "</details>";
     html += "<a href='/wps'>Start WPS</a>";
     html += "<p class='muted'>WPS: first click Start WPS here, then press Connect/WPS on the FRITZ!Box.</p>";
     html += "<p class='muted'>Unterwegs: Handy mit Spartan3-Setup verbinden. Hub http://192.168.4.1/, M5 http://192.168.4.2/, Waveshare http://192.168.4.3/.</p>";
@@ -1368,6 +1380,14 @@ static void applyEspNowFrame(const SpartanCockpitFrame& frame) {
         g_rpm = frame.rpm;
         g_adv = frame.advance_x10 / 10.0f;
         g_map = frame.map;
+        // v2: 123 Volt/Temp/Coil aus dem Frame uebernehmen (Gateway-Anzeige)
+        const bool tuneFresh = (frame.flags & kSpartanFlagTuneFresh) != 0;
+        if (tuneFresh) {
+            g_gw123Volt = spartanCockpitVolt(frame);
+            g_gw123Temp = (float)frame.tune_temp_c;
+            g_gw123Coil = spartanCockpitCoil(frame);
+            g_gw123Valid = true;
+        }
     }
     g_espNowLastRxMs = millis();
     g_rxCnt++;
@@ -1950,6 +1970,23 @@ static void setupWebGui() {
     web.on("/hostname", HTTP_GET, handleHostnameSave);
     web.on("/wifi_spartan", HTTP_POST, handleSpartanWifiPreset);
     web.on("/wifi_prof", HTTP_POST, handleWifiProfile);
+    web.on("/wifi_profile_save", HTTP_POST, []() {
+        int slot = web.arg("slot").toInt();
+        if (slot < 0 || slot > 1) { web.send(400, "text/plain", "Ungültiger Slot"); return; }
+        String ssid = web.arg("ssid"); ssid.trim();
+        String pass = web.arg("pass");
+        strlcpy(WIFI_PROFILES[slot].ssid, ssid.c_str(), sizeof(WIFI_PROFILES[slot].ssid));
+        if (slot == 0) {
+            prefs.putString("prof_phone_ssid", ssid);
+            if (pass.length() > 0) prefs.putString("prof_phone_pass", pass);
+        } else {
+            prefs.putString("prof_home_ssid", ssid);
+            if (pass.length() > 0) prefs.putString("prof_home_pass", pass);
+        }
+        pushLog("Profil %d SSID='%s'", slot, ssid.c_str());
+        web.sendHeader("Location", "/");
+        web.send(303);
+    });
     web.on("/wifi_dhcp", HTTP_POST, handleWifiDhcpMode);
     web.on("/wifi_setup_ap", HTTP_POST, handleWifiSetupAp);
     web.on("/wps", HTTP_GET, handleWpsStart);
@@ -2060,6 +2097,16 @@ static void setWifiHomeApEnabled(bool enabled) {
     }
 }
 
+static void loadWifiProfileSsids() {
+    // Editierbare SSIDs aus NVS, Fallback: compile-time Defaults
+    String phoneSsid = prefs.getString("prof_phone_ssid", "");
+    if (phoneSsid.length() > 0)
+        strlcpy(WIFI_PROFILES[0].ssid, phoneSsid.c_str(), sizeof(WIFI_PROFILES[0].ssid));
+    String homeSsid = prefs.getString("prof_home_ssid", "");
+    if (homeSsid.length() > 0)
+        strlcpy(WIFI_PROFILES[1].ssid, homeSsid.c_str(), sizeof(WIFI_PROFILES[1].ssid));
+}
+
 static void seedWifiProfilePasswords() {
 #ifdef WIFI_PASSWORD
     if (prefs.getString("prof_phone_pass", "").length() == 0) {
@@ -2087,6 +2134,7 @@ static void seedWifiProfilePasswords() {
 static void setupWifi() {
     prefs.begin("net", false);
     loadUiSettings();
+    loadWifiProfileSsids();
     seedWifiProfilePasswords();
     syncWifiProfileFromSavedSsid();
     if (g_connectionMode == CONN_ESPNOW_BUS && !isSpartanApWifiPreset()) {
