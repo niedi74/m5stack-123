@@ -236,6 +236,9 @@ static String      g_serialLine;
 static const char* LOG_FILE = "/drive.csv";
 static const char* OLD_LOG_FILE = "/drive_old.csv";
 static const char* LOG_HEADER = "ms;zeit;epoch;rpm;zuendung_grad;map_kpa;map_bar;temp_c;spannung_v;spule_a;rx;tune_active;tune_steps";
+static uint32_t    g_logAppendFail = 0;
+static uint32_t    g_logHeaderFail = 0;
+static char        g_logLastError[32] = "";
 static const char* LOCAL_TZ = "CET-1CEST,M3.5.0,M10.5.0/3";
 static constexpr uint8_t RTC_ADDR = 0x51;
 static constexpr uint8_t RTC_SDA = 11;
@@ -724,8 +727,16 @@ static void handleTouch() {
     g_touchDown = down;
 }
 
-static void ensureLogHeader() {
-    if (!g_fsOk) return;
+static void setLogError(const char* err) {
+    strncpy(g_logLastError, err, sizeof(g_logLastError) - 1);
+    g_logLastError[sizeof(g_logLastError) - 1] = 0;
+}
+
+static bool ensureLogHeader() {
+    if (!g_fsOk) {
+        setLogError("fs_not_ready");
+        return false;
+    }
     bool needsHeader = !SPIFFS.exists(LOG_FILE);
     if (!needsHeader) {
         File existing = SPIFFS.open(LOG_FILE, FILE_READ);
@@ -748,8 +759,14 @@ static void ensureLogHeader() {
         if (f) {
             f.println(LOG_HEADER);
             f.close();
+            g_logLastError[0] = 0;
+        } else {
+            if (g_logHeaderFail < UINT32_MAX) g_logHeaderFail++;
+            setLogError("header_open_fail");
+            return false;
         }
     }
+    return true;
 }
 
 static void rotateLogIfNeeded() {
@@ -767,10 +784,15 @@ static void rotateLogIfNeeded() {
 
 static void appendLiveCsv() {
     if (!g_fsOk || g_rpm <= kLogMinRpm) return;
+    if (!ensureLogHeader()) return;
     rotateLogIfNeeded();
 
     File f = SPIFFS.open(LOG_FILE, FILE_APPEND);
-    if (!f) return;
+    if (!f) {
+        if (g_logAppendFail < UINT32_MAX) g_logAppendFail++;
+        setLogError("append_open_fail");
+        return;
+    }
     String ts = localTimestamp();
     f.printf("%lu;%s;%ld;%d;%s;%d;%s;%d;%s;%s;%lu;%d;%+d\n",
              (unsigned long)millis(),
@@ -787,6 +809,7 @@ static void appendLiveCsv() {
              g_tuneActive ? 1 : 0,
              g_tuneSteps);
     f.close();
+    g_logLastError[0] = 0;
 }
 
 static String humanBytes(size_t bytes) {
@@ -1006,9 +1029,20 @@ static void handleRoot() {
     web.send(200, "text/html", html);
 }
 
+static String jsonEscape(const char* text) {
+    String out;
+    if (!text) return out;
+    while (*text) {
+        const char c = *text++;
+        if (c == '"' || c == '\\') out += '\\';
+        out += c;
+    }
+    return out;
+}
+
 static void handleState() {
     String json;
-    json.reserve(420);
+    json.reserve(560);
     json += "{";
     json += "\"ble\":" + String(g_conn ? "true" : "false") + ",";
     json += "\"hub_wifi\":" + String(g_hubWifiOk ? "true" : "false") + ",";
@@ -1022,6 +1056,12 @@ static void handleState() {
     json += "\"esp_now_channel_label\":\"" + String(espNowChannelLabel()) + "\",";
     json += "\"esp_now_channel_pref\":" + String(prefs.getUChar("espnow_ch", 0)) + ",";
 #endif
+    json += "\"log_fs_ok\":" + String(g_fsOk ? "true" : "false") + ",";
+    json += "\"log_current_bytes\":" + String((unsigned long)fileSize(LOG_FILE)) + ",";
+    json += "\"log_old_bytes\":" + String((unsigned long)fileSize(OLD_LOG_FILE)) + ",";
+    json += "\"log_append_fail\":" + String((unsigned long)g_logAppendFail) + ",";
+    json += "\"log_header_fail\":" + String((unsigned long)g_logHeaderFail) + ",";
+    json += "\"log_last_error\":\"" + jsonEscape(g_logLastError) + "\",";
     json += "\"data_link\":" + String(dataLinkOk() ? "true" : "false") + ",";
     json += "\"demo\":" + String(g_demoMode ? "true" : "false") + ",";
     json += "\"page\":\"" + String(pageName()) + "\",";
@@ -2255,7 +2295,7 @@ static void handleSerialCommand(String line) {
     }
 
     if (line.equalsIgnoreCase("ui_status")) {
-        Serial.printf("[UI] page=%s demo=%d buzzer=%d button=%d ble=%d error=%d touch_nav=%d bat_hold=%d wifi_home_ap=%d brightness=%u rotation=%u\n",
+        Serial.printf("[UI] page=%s demo=%d buzzer=%d button=%d ble=%d error=%d touch_nav=%d bat_hold=%d wifi_home_ap=%d brightness=%u rotation=%u log=%lu old=%lu fs=%d log_err=%s append_fail=%lu header_fail=%lu\n",
                       pageName(),
                       g_demoMode ? 1 : 0,
                       g_buzzerEnabled ? 1 : 0,
@@ -2266,7 +2306,13 @@ static void handleSerialCommand(String line) {
                       g_batteryHoldEnabled ? 1 : 0,
                       g_wifiHomeApEnabled ? 1 : 0,
                       g_brightness,
-                      displayRotationDegrees());
+                      displayRotationDegrees(),
+                      (unsigned long)fileSize(LOG_FILE),
+                      (unsigned long)fileSize(OLD_LOG_FILE),
+                      g_fsOk ? 1 : 0,
+                      g_logLastError[0] ? g_logLastError : "-",
+                      (unsigned long)g_logAppendFail,
+                      (unsigned long)g_logHeaderFail);
         return;
     }
 
@@ -3752,9 +3798,14 @@ void setup() {
 
     pushLog("Start...");
     setupRtcTime();
-    g_fsOk = SPIFFS.begin(true);
+    g_fsOk = SPIFFS.begin(true, "/spiffs", 10, "spiffs");
     pushLog("SPIFFS: %s", g_fsOk ? "OK" : "FAIL");
-    ensureLogHeader();
+    if (!ensureLogHeader()) {
+        SPIFFS.end();
+        SPIFFS.format();
+        g_fsOk = SPIFFS.begin(true, "/spiffs", 10, "spiffs");
+        ensureLogHeader();
+    }
     setupWifi();
 
     NimBLEDevice::init("M5Dial-NUS");
