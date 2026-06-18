@@ -171,7 +171,7 @@ static constexpr const char* kSpartanApM5Ip = "192.168.4.2";
 static constexpr const char* kSpartanApGateway = "192.168.4.1";
 static constexpr const char* kHubHomeHost = "192.168.0.87";
 static constexpr uint32_t kHubPollMs = 300;
-static constexpr uint32_t kHubTimeoutMs = 1200;
+static constexpr uint32_t kHubTimeoutMs = 400;   // hart begrenzt: HTTP darf den Loop/Render nie lange blockieren
 static constexpr uint32_t kHubFreshMs = 5000;
 static constexpr uint32_t kHubTimeResyncMs = 60000;
 static volatile bool     g_hubWifiOk = false;
@@ -1642,6 +1642,13 @@ static void hubWifiPollTick() {
     static uint32_t nextPollMs = 0;
     const uint32_t now = millis();
     if (now < nextPollMs) return;
+    // ESP-NOW ist der Live-Pfad. Solange frische ESP-NOW-Frames kommen, NICHT
+    // den synchronen HTTP-GET fahren — der blockiert den Loop bis kHubTimeoutMs
+    // und macht den Render langsam/unsynchron zum Touch. HTTP nur als Fallback.
+    if (g_espNowEnabled && espNowDataFresh()) {
+        nextPollMs = now + 1000;
+        return;
+    }
     nextPollMs = now + kHubPollMs;
 
     HTTPClient http;
