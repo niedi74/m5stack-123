@@ -881,6 +881,7 @@ static bool hubWifiPreferred();
 static void applyWifiIpConfig();
 static bool hubDataFresh();
 static bool dataLinkOk();
+static String configuredHostname();
 
 static void handleRoot() {
     String ip = wifiIpLabel();
@@ -980,6 +981,9 @@ static void handleRoot() {
     html += "<a href='/download'>Download current CSV</a><a href='/download_old'>Download old CSV</a><a href='/clear'>Clear current log</a></div>";
     html += "<div class='box'><h3>WLAN Profile</h3>";
     html += "<p class='muted'>Hub-Daten via HTTP /api/status. Gateway-Modus + Hub-Host automatisch (.87 zu Hause, .4.1 im Bus).</p>";
+    html += "<div>DNS Name: <b id='host_label'>" + configuredHostname() + "</b></div>";
+    html += "<form class='wifi-form' action='/hostname' method='get'><input id='host_input' name='host' maxlength='31' pattern='[A-Za-z0-9.-]{1,31}' placeholder='DNS-/Geraetename' value='" + configuredHostname() + "'>";
+    html += "<button type='submit'>Name speichern + reboot</button></form>";
     html += "<div class='wifi-actions'>";
     const uint8_t profCount = wifiProfileCount();
     for (uint8_t i = 0; i < profCount; i++) {
@@ -1011,7 +1015,7 @@ static void handleRoot() {
     html += "tunelbl.textContent=d.tune_active?('TUNE '+(d.tune_steps>=0?'+':'')+d.tune_steps):'ADVANCE  deg';tunelbl.className='tunelbl '+c(d.tune_steps);";
     html += "map.textContent=Number(d.map_bar).toFixed(2);lambda.textContent=d.lambda_valid?Number(d.lambda).toFixed(2):'--';rpm.textContent=d.rpm;aux1.textContent=d.temp;aux2.textContent=Number(d.volt).toFixed(1);";
     html += "if(!d.lambda_valid){lambda.style.color='#666'}else if(d.lambda<0.8){lambda.style.color='#ffd54a'}else if(d.lambda<0.9){lambda.style.color='#35d46b'}else if(d.lambda<1.0){lambda.style.color='#f39c12'}else{lambda.style.color='#ff3838'};";
-    html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);yn('demomode',d.demo);if(d.demo)demomode.className='demo';yn('bathold',d.battery_hold);yn('wifiapsta',d.wifi_home_ap);yn('espnowon',d.esp_now_enabled);bright.textContent=d.brightness;rotation.textContent=d.rotation_deg+' deg';connmode.textContent=d.connection_label;wifipreset.textContent=d.wifi_profile||'Home';if(document.getElementById('espnowch'))espnowch.textContent=d.esp_now_channel_label||'-';";
+    html += "yn('buzz',d.buzzer);yn('btnbeep',d.beep_actions);yn('blebeep',d.beep_ble);yn('errbeep',d.beep_errors);yn('touchnav',d.touch_nav);yn('demomode',d.demo);if(d.demo)demomode.className='demo';yn('bathold',d.battery_hold);yn('wifiapsta',d.wifi_home_ap);yn('espnowon',d.esp_now_enabled);bright.textContent=d.brightness;rotation.textContent=d.rotation_deg+' deg';connmode.textContent=d.connection_label;wifipreset.textContent=d.wifi_profile||'Home';if(document.getElementById('espnowch'))espnowch.textContent=d.esp_now_channel_label||'-';if(document.getElementById('host_label'))host_label.textContent=d.hostname||'-';if(document.getElementById('host_input')&&document.activeElement!==host_input)host_input.value=d.hostname||'';";
     html += "ctl_buzzer.checked=d.buzzer;ctl_button.checked=d.beep_actions;ctl_ble.checked=d.beep_ble;ctl_error.checked=d.beep_errors;ctl_touch.checked=d.touch_nav;ctl_demo.checked=d.demo;ctl_bathold.checked=d.battery_hold;ctl_wifiapsta.checked=d.wifi_home_ap;ctl_espnow.checked=d.esp_now_enabled;ctl_espnow_ch.value=String(d.esp_now_channel_pref||0);ctl_bright.value=d.brightness;ctl_bright_value.textContent=d.brightness;ctl_rotation.value=String(d.rotation_deg);ctl_conn.value=d.connection;";
     html += "ctl_buzzer.disabled=d.settings_locked&&!d.buzzer;ctl_button.disabled=d.settings_locked&&!d.beep_actions;ctl_ble.disabled=d.settings_locked&&!d.beep_ble;ctl_error.disabled=d.settings_locked&&!d.beep_errors;ctl_touch.disabled=d.settings_locked&&!d.touch_nav;ctl_demo.disabled=d.settings_locked&&!d.demo;ctl_bathold.disabled=d.settings_locked;ctl_wifiapsta.disabled=d.settings_locked;ctl_espnow.disabled=d.settings_locked&&!d.esp_now_enabled;ctl_espnow_ch.disabled=false;ctl_bright.disabled=false;ctl_rotation.disabled=false;ctl_conn.disabled=false;";
     html += "for(let i=0;i<7;i++)document.getElementById('set'+i).className='item '+(d.page=='SET'&&i==d.setting_index?'sel':'');";
@@ -1038,6 +1042,36 @@ static String jsonEscape(const char* text) {
         out += c;
     }
     return out;
+}
+
+static String normalizeHostnameInput(const String& raw) {
+    String name = raw;
+    name.trim();
+    name.toLowerCase();
+    String out;
+    out.reserve(name.length());
+    bool lastDash = false;
+    for (size_t i = 0; i < name.length() && out.length() < 31; i++) {
+        char c = name[i];
+        const bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.';
+        if (!ok) continue;
+        if (c == '-' || c == '.') {
+            if (out.length() == 0 || lastDash) continue;
+            lastDash = true;
+        } else {
+            lastDash = false;
+        }
+        out += c;
+    }
+    while (out.endsWith("-") || out.endsWith(".")) out.remove(out.length() - 1);
+    return out;
+}
+
+static String configuredHostname() {
+    String name = prefs.isKey("hostname") ? prefs.getString("hostname", "esp-m5dial") : String("esp-m5dial");
+    name = normalizeHostnameInput(name);
+    if (name.length() == 0) name = "esp-m5dial";
+    return name;
 }
 
 static void handleState() {
@@ -1091,6 +1125,7 @@ static void handleState() {
     json += "\"wifi_ap\":" + String(g_wifiAp ? "true" : "false") + ",";
     json += "\"wifi_spartan_preset\":" + String(isSpartanApWifiPreset() ? "true" : "false") + ",";
     json += "\"wifi_profile\":\"" + String(wifiProfileLabel()) + "\",";
+    json += "\"hostname\":\"" + configuredHostname() + "\",";
     json += "\"hub_host\":\"" + hubPollHost() + "\",";
     json += "\"connection\":\"" + String(g_connectionMode == CONN_SPARTAN_GATEWAY ? "gateway" : (g_connectionMode == CONN_ESPNOW_BUS ? "espnow" : "direct")) + "\",";
     json += "\"connection_label\":\"" + String(connectionModeLabel()) + "\",";
@@ -1137,6 +1172,18 @@ static void handleWifiSave() {
         prefs.putString("home_pass", pass);
     }
     web.send(200, "text/plain", "WiFi saved. Rebooting...");
+    delay(500);
+    ESP.restart();
+}
+
+static void handleHostnameSave() {
+    String name = normalizeHostnameInput(web.arg("host"));
+    if (name.length() == 0) {
+        web.send(400, "text/plain", "DNS-Name ungueltig. Erlaubt: a-z, 0-9, Punkt und Bindestrich.");
+        return;
+    }
+    prefs.putString("hostname", name);
+    web.send(200, "text/plain", "DNS name saved. Rebooting...");
     delay(500);
     ESP.restart();
 }
@@ -1844,6 +1891,7 @@ static void setupWebGui() {
     web.on("/ui", HTTP_POST, handleUiSetting);
     web.on("/time_set", HTTP_GET, handleTimeSet);
     web.on("/wifi", HTTP_GET, handleWifiSave);
+    web.on("/hostname", HTTP_GET, handleHostnameSave);
     web.on("/wifi_spartan", HTTP_POST, handleSpartanWifiPreset);
     web.on("/wifi_prof", HTTP_POST, handleWifiProfile);
     web.on("/wifi_dhcp", HTTP_POST, handleWifiDhcpMode);
@@ -1990,7 +2038,8 @@ static void setupWifi() {
         pushLog("ESP-NOW -> Bus WiFi");
     }
     WiFi.onEvent(onWifiEvent);
-    WiFi.setHostname("esp-m5dial");
+    String hostName = configuredHostname();
+    WiFi.setHostname(hostName.c_str());
     WiFi.mode(g_wifiHomeApEnabled ? WIFI_AP_STA : WIFI_STA);
 
     String ssid = prefs.getString("ssid", "");
