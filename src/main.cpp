@@ -9,6 +9,9 @@
 #include <time.h>
 #include <sys/time.h>
 #include <Wire.h>
+#include "driver/gpio.h"
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 #include "esp_wps.h"
 #include <M5GFX.h>
 #include <lgfx/v1/panel/Panel_GC9A01.hpp>
@@ -82,6 +85,14 @@ static const char* SPARTAN_CMD = "7f510003-5a6b-4d2a-9f20-14a7f3e20000";
 #define TOUCH_INT_PIN 14
 #define LONG_PRESS_MS 600
 #define TUNE_HOLD_MS  2000
+
+extern "C" void initVariant() {
+    gpio_hold_dis(GPIO_NUM_46);
+    gpio_reset_pin(GPIO_NUM_46);
+    gpio_set_direction(GPIO_NUM_46, GPIO_MODE_OUTPUT);
+    gpio_set_level(GPIO_NUM_46, 1);
+    gpio_hold_en(GPIO_NUM_46);
+}
 
 // --- On-screen log ---
 #define NLOG 6
@@ -672,7 +683,7 @@ static void loadUiSettings() {
     g_connectionMode = CONN_DIRECT_123;
     g_espNowEnabled = false;
     g_wifiHomeApEnabled = false;
-    g_brightness = 255;
+    g_brightness = 100;
 #endif
     if (g_brightness < 40) g_brightness = 40;
     prefs.putBool("bat_hold", true);
@@ -3970,14 +3981,49 @@ void setup() {
         delay(200);
     }
 
+#if M5_RESCUE_DIRECT_ONLY
+    Serial.println("STABLE: BLE init, display still off");
+    const uint32_t brownoutConfig = REG_READ(RTC_CNTL_BROWN_OUT_REG);
+    REG_CLR_BIT(RTC_CNTL_BROWN_OUT_REG, RTC_CNTL_BROWN_OUT_ENA);
+    NimBLEDevice::init("M5Dial-NUS");
+    NimBLEDevice::setPower(ESP_PWR_LVL_P3);
+    NimBLEDevice::setMTU(23);
+    delay(500);
+    REG_WRITE(RTC_CNTL_BROWN_OUT_REG, brownoutConfig);
+    Serial.println("STABLE: BLE init OK");
+#endif
+
     display.init();
     applyDisplayRotation();
     display.fillScreen(TFT_BLACK);
-    display.setBrightness(255);
+    display.setBrightness(100);
     display.setTextDatum(MC_DATUM);
     display.setTextColor(TFT_GREEN);
     display.setFont(&fonts::Font2);
     display.drawString("M5 BOOT", 120, 112);
+
+#if M5_RESCUE_DIRECT_ONLY
+    pinMode(BTN_PIN, INPUT_PULLUP);
+    pinMode(ENC_A_PIN, INPUT_PULLUP);
+    pinMode(ENC_B_PIN, INPUT_PULLUP);
+    pinMode(TOUCH_INT_PIN, INPUT_PULLUP);
+
+    prefs.begin("net", false);
+    loadUiSettings();
+    g_connectionMode = CONN_DIRECT_123;
+    g_espNowEnabled = false;
+    g_wifiHomeApEnabled = false;
+    g_brightness = 100;
+    g_page = PAGE_MAIN;
+    applyPowerHold();
+    display.setBrightness(100);
+    WiFi.mode(WIFI_OFF);
+
+    pushLog("STABLE: display OK");
+    pushLog("STABLE: 123 BLE");
+    startScan();
+    return;
+#endif
 
     sprTop.createSprite(240, 102);
     sprBot.createSprite(240, 102);
@@ -4000,14 +4046,7 @@ void setup() {
         g_fsOk = SPIFFS.begin(true, "/spiffs", 10, "spiffs");
         ensureLogHeader();
     }
-#if M5_RESCUE_DIRECT_ONLY
-    prefs.begin("net", false);
-    loadUiSettings();
-    WiFi.mode(WIFI_OFF);
-    pushLog("RESCUE: 123 direct");
-#else
     setupWifi();
-#endif
 
     NimBLEDevice::init("M5Dial-NUS");
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
@@ -4031,6 +4070,31 @@ void setup() {
 }
 
 void loop() {
+#if M5_RESCUE_DIRECT_ONLY
+    serviceScanRetry();
+    handleEncoder();
+    handleButton();
+
+    if (doConnect) {
+        doConnect = false;
+        connectBLE();
+    }
+
+    static uint32_t stableLastPing = 0;
+    if (g_conn && millis() - stableLastPing >= 1650) {
+        stableLastPing = millis();
+        sendRaytacPing();
+    }
+
+    static uint32_t stableLastDraw = 0;
+    if (millis() - stableLastDraw >= 100) {
+        stableLastDraw = millis();
+        drawMain();
+    }
+    delay(10);
+    return;
+#endif
+
     pollSerialCommands();
     serviceDemoMode();
     maintainWifi();
