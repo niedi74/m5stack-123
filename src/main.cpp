@@ -21,6 +21,9 @@
 #ifndef ENABLE_ESP_NOW_CLIENT
 #define ENABLE_ESP_NOW_CLIENT 0
 #endif
+#ifndef M5_RESCUE_DIRECT_ONLY
+#define M5_RESCUE_DIRECT_ONLY 0
+#endif
 #if ENABLE_ESP_NOW_CLIENT
 #include <esp_now.h>
 #include <esp_wifi.h>
@@ -657,7 +660,7 @@ static void loadUiSettings() {
         g_beepBle = prefs.getBool("beep_ble", false);
         g_beepErrors = prefs.getBool("beep_err", false);
         g_touchNavigation = prefs.getBool("touch_nav", false);
-        g_batteryHoldEnabled = prefs.getBool("bat_hold", true);
+        g_batteryHoldEnabled = true;
         g_wifiHomeApEnabled = prefs.getBool("wifi_apsta", false);
         uint8_t savedMode = prefs.getUChar("conn_mode", CONN_DIRECT_123);
         g_connectionMode = savedMode == CONN_SPARTAN_GATEWAY ? CONN_SPARTAN_GATEWAY :
@@ -665,7 +668,14 @@ static void loadUiSettings() {
         g_espNowEnabled = prefs.getBool("espnow_on", true);
     }
     g_wifiProfile = prefs.getUChar("wifi_prof", 0);
+#if M5_RESCUE_DIRECT_ONLY
+    g_connectionMode = CONN_DIRECT_123;
+    g_espNowEnabled = false;
+    g_wifiHomeApEnabled = false;
+    g_brightness = 255;
+#endif
     if (g_brightness < 40) g_brightness = 40;
+    prefs.putBool("bat_hold", true);
     applyPowerHold();
     applyDisplayRotation();
     display.setBrightness(g_brightness);
@@ -3963,7 +3973,11 @@ void setup() {
     display.init();
     applyDisplayRotation();
     display.fillScreen(TFT_BLACK);
-    display.setBrightness(g_brightness);
+    display.setBrightness(255);
+    display.setTextDatum(MC_DATUM);
+    display.setTextColor(TFT_GREEN);
+    display.setFont(&fonts::Font2);
+    display.drawString("M5 BOOT", 120, 112);
 
     sprTop.createSprite(240, 102);
     sprBot.createSprite(240, 102);
@@ -3985,7 +3999,14 @@ void setup() {
         g_fsOk = SPIFFS.begin(true, "/spiffs", 10, "spiffs");
         ensureLogHeader();
     }
+#if M5_RESCUE_DIRECT_ONLY
+    prefs.begin("net", false);
+    loadUiSettings();
+    WiFi.mode(WIFI_OFF);
+    pushLog("RESCUE: 123 direct");
+#else
     setupWifi();
+#endif
 
     NimBLEDevice::init("M5Dial-NUS");
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
