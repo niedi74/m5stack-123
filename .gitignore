@@ -12,3 +12,6 @@ platformio.local.ini
 
 # Lokale WLAN-Zugangsdaten
 src/wifi_secret.h
+
+# Build-/Flash-/Serial-Logs (lokal, nicht committen)
+*.log

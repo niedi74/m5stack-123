@@ -554,8 +554,8 @@ static uint8_t settingCountForPage() {
 }
 
 static void stopBeep() {
-    ledcWriteTone(BUZZER_PIN, 0);
-    ledcWrite(BUZZER_PIN, 0);
+    ledcWriteTone(kBuzzerChannel, 0);
+    ledcWrite(kBuzzerChannel, 0);
     g_beepUntil = 0;
 }
 
@@ -568,7 +568,7 @@ static void beep(BeepKind kind) {
 
     uint16_t freq = kind == BEEP_ERROR ? 1800 : (kind == BEEP_BLE ? 5200 : 4200);
     uint16_t duration = kind == BEEP_ERROR ? 160 : 45;
-    ledcWriteTone(BUZZER_PIN, freq);
+    ledcWriteTone(kBuzzerChannel, freq);
     g_beepUntil = millis() + duration;
 }
 
@@ -3986,7 +3986,8 @@ void setup() {
     pinMode(ENC_A_PIN, INPUT_PULLUP);
     pinMode(ENC_B_PIN, INPUT_PULLUP);
     pinMode(TOUCH_INT_PIN, INPUT_PULLUP);
-    ledcAttach(BUZZER_PIN, 4000, 8);
+    ledcSetup(kBuzzerChannel, 4000, 8);
+    ledcAttachPin(BUZZER_PIN, kBuzzerChannel);
     stopBeep();
 
     pushLog("Start...");
