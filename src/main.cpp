@@ -10,8 +10,6 @@
 #include <sys/time.h>
 #include <Wire.h>
 #include "driver/gpio.h"
-#include "soc/soc.h"
-#include "soc/rtc_cntl_reg.h"
 #include "esp_wps.h"
 #include <M5GFX.h>
 #include <lgfx/v1/panel/Panel_GC9A01.hpp>
@@ -3983,13 +3981,10 @@ void setup() {
 
 #if M5_RESCUE_DIRECT_ONLY
     Serial.println("STABLE: BLE init, display still off");
-    const uint32_t brownoutConfig = REG_READ(RTC_CNTL_BROWN_OUT_REG);
-    REG_CLR_BIT(RTC_CNTL_BROWN_OUT_REG, RTC_CNTL_BROWN_OUT_ENA);
     NimBLEDevice::init("M5Dial-NUS");
     NimBLEDevice::setPower(ESP_PWR_LVL_P3);
     NimBLEDevice::setMTU(23);
     delay(500);
-    REG_WRITE(RTC_CNTL_BROWN_OUT_REG, brownoutConfig);
     Serial.println("STABLE: BLE init OK");
 #endif
 
